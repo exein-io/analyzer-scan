@@ -1,0 +1,59 @@
+name: 'Scan firmware and container images with Exein Analyzer'
+
+description: 'Runs Exein Analyzer CLI to scan Docker images, Linux firmware, or IDF firmware for vulnerabilities.'
+
+inputs:
+  # Authentication
+  api-key:
+    description: 'API key for the Exein Analyzer platform'
+    required: true
+  api-url:
+    description: 'Base API URL (supports on-prem deployments)'
+    required: false
+    default: 'https://analyzer.exein.io/api/'
+
+  # Object
+  object-id:
+    description: 'UUID of the Analyzer object to launch the scan against'
+    required: true
+
+  # Scan
+  scan-type:
+    description: 'Type of scan to run: docker, linux, or idf'
+    required: true
+  file-path:
+    description: 'Path to firmware/image file to scan'
+    required: true
+  analysis:
+    description: 'Newline-separated list of analysis types to run (defaults applied per scan type if omitted)'
+    required: false
+
+  # Post-scan
+  download-report:
+    description: 'Download PDF report after scan completes'
+    required: false
+    default: 'false'
+  download-sbom:
+    description: 'Download SBOM JSON after scan completes'
+    required: false
+    default: 'false'
+
+  # CLI
+  cli-version:
+    description: 'Pin Analyzer CLI release version (e.g. v1.0.0). Defaults to latest'
+    required: false
+    default: 'latest'
+
+outputs:
+  scan-id:
+    description: 'UUID of the created scan'
+  scan-url:
+    description: 'Direct link to scan results in the Analyzer UI'
+  report-path:
+    description: 'Local path to PDF report (only set when download-report is true)'
+  sbom-path:
+    description: 'Local path to SBOM JSON (only set when download-sbom is true)'
+
+runs:
+  using: "node24"
+  main: "dist/index.js"
