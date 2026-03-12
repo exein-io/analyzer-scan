@@ -1,0 +1,53 @@
+{
+    "name": "analyzer-scan",
+    "version": "1.0.0",
+    "description": "GitHub Action for scanning Docker images, Linux firmware, and IDF firmware with Exein Analyzer",
+    "main": "dist/index.js",
+    "author": "Exein SpA",
+    "scripts": {
+        "build": "ncc build src/index.ts -o dist",
+        "lint": "eslint src/",
+        "lint:fix": "eslint src/ --fix",
+        "prettier": "prettier --check 'src/**/*.ts'",
+        "prettier:fix": "prettier --write 'src/**/*.ts'",
+        "all": "yarn lint && yarn prettier && yarn build"
+    },
+    "packageManager": "yarn@4.9.1",
+    "license": "Apache-2.0",
+    "repository": {
+        "type": "git",
+        "url": "git+https://github.com/exein-io/analyzer-scan.git"
+    },
+    "bugs": {
+        "url": "https://github.com/exein-io/analyzer-scan/issues"
+    },
+    "homepage": "https://github.com/exein-io/analyzer-scan#readme",
+    "keywords": [
+        "security",
+        "firmware",
+        "firmware-security",
+        "embedded",
+        "iot",
+        "vulnerability",
+        "scanning",
+        "sbom",
+        "cve",
+        "devsecops",
+        "github-actions",
+        "ci-cd",
+        "runtime-security",
+        "preemptive-security"
+    ],
+    "dependencies": {
+        "@actions/core": "^1.10.1"
+    },
+    "devDependencies": {
+        "@eslint/js": "^9.0.0",
+        "@types/node": "^22.0.0",
+        "@vercel/ncc": "^0.38.0",
+        "eslint": "^9.0.0",
+        "prettier": "^3.3.0",
+        "typescript": "^5.5.2",
+        "typescript-eslint": "^8.0.0"
+    }
+}

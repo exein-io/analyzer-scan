@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Report a security vulnerability
+    url: https://github.com/exein-io/analyzer-scan/security/advisories/new
+    about: Please report security vulnerabilities privately via GitHub Private Vulnerability Reporting — do not open a public issue.
+  - name: Questions & support
+    url: mailto:support@exein.io
+    about: For questions or help using Exein Analyzer, contact support@exein.io instead of opening an issue.
