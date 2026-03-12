@@ -27630,12 +27630,9 @@ function getInputs() {
 
 // EXTERNAL MODULE: external "child_process"
 var external_child_process_ = __nccwpck_require__(5317);
-// EXTERNAL MODULE: external "fs"
-var external_fs_ = __nccwpck_require__(9896);
 // EXTERNAL MODULE: external "os"
 var external_os_ = __nccwpck_require__(857);
 ;// CONCATENATED MODULE: ./src/cli.ts
-
 
 
 
@@ -27647,32 +27644,20 @@ function installAnalyzerCli(version) {
     (0,external_child_process_.execFileSync)('curl', ['-fsSL', '-o', scriptPath, INSTALL_SCRIPT_URL], {
         stdio: 'inherit',
     });
-    const content = external_fs_.readFileSync(scriptPath, 'utf8');
-    if (!content.startsWith('#!/')) {
-        throw new Error(`Downloaded install script appears invalid:\n${content.slice(0, 200)}`);
-    }
-    const installDir = external_fs_.mkdtempSync(external_path_.join(external_os_.tmpdir(), 'analyzer-'));
-    const env = { ...process.env, INSTALL_DIR: installDir };
+    const env = { ...process.env };
     if (version !== 'latest') {
         env.VERSION = version;
     }
-    // The upstream install script has a bug where the EXIT trap references a
-    // local variable under set -u, causing a non-zero exit even on success.
-    // See: https://github.com/exein-io/analyzer-cli/pull/XXX
-    try {
-        (0,external_child_process_.execFileSync)('bash', [scriptPath], { stdio: 'inherit', env });
-    }
-    catch {
-        // Verify the binary was actually installed despite the exit code
-    }
-    const analyzerPath = external_path_.join(installDir, 'analyzer');
-    if (!external_fs_.existsSync(analyzerPath)) {
-        throw new Error(`Analyzer CLI binary not found at ${analyzerPath}`);
-    }
+    (0,external_child_process_.execFileSync)('bash', [scriptPath], { stdio: 'inherit', env });
+    const analyzerPath = (0,external_child_process_.execFileSync)('which', ['analyzer'], {
+        encoding: 'utf8',
+    }).trim();
     core.info(`Analyzer CLI installed at ${analyzerPath}`);
     return analyzerPath;
 }
 
+// EXTERNAL MODULE: external "fs"
+var external_fs_ = __nccwpck_require__(9896);
 ;// CONCATENATED MODULE: ./src/scan.ts
 
 

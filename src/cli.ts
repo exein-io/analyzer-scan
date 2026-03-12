@@ -1,6 +1,5 @@
 import * as core from '@actions/core';
 import { execFileSync } from 'child_process';
-import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
 
@@ -15,31 +14,16 @@ export function installAnalyzerCli(version: string): string {
     stdio: 'inherit',
   });
 
-  const content = fs.readFileSync(scriptPath, 'utf8');
-  if (!content.startsWith('#!/')) {
-    throw new Error(`Downloaded install script appears invalid:\n${content.slice(0, 200)}`);
-  }
-
-  const installDir = fs.mkdtempSync(path.join(os.tmpdir(), 'analyzer-'));
-
-  const env: NodeJS.ProcessEnv = { ...process.env, INSTALL_DIR: installDir };
+  const env: NodeJS.ProcessEnv = { ...process.env };
   if (version !== 'latest') {
     env.VERSION = version;
   }
 
-  // The upstream install script has a bug where the EXIT trap references a
-  // local variable under set -u, causing a non-zero exit even on success.
-  // See: https://github.com/exein-io/analyzer-cli/pull/XXX
-  try {
-    execFileSync('bash', [scriptPath], { stdio: 'inherit', env });
-  } catch {
-    // Verify the binary was actually installed despite the exit code
-  }
+  execFileSync('bash', [scriptPath], { stdio: 'inherit', env });
 
-  const analyzerPath = path.join(installDir, 'analyzer');
-  if (!fs.existsSync(analyzerPath)) {
-    throw new Error(`Analyzer CLI binary not found at ${analyzerPath}`);
-  }
+  const analyzerPath = execFileSync('which', ['analyzer'], {
+    encoding: 'utf8',
+  }).trim();
 
   core.info(`Analyzer CLI installed at ${analyzerPath}`);
   return analyzerPath;
