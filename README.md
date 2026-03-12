@@ -1,1 +1,156 @@
-# analyzer-scan
+<p align="center">
+  <img src="assets/header.png" alt="Project Logo"/>
+</p>
+
+GitHub Action for [Exein Analyzer](https://www.exein.io/platform/exein-analyzer). Scans pre-built firmware images, container images, and SBOMs for vulnerabilities, supply chain risks, and security misconfigurations on every build.
+
+## Supported Firmware
+
+| OS / Framework / Runtime | HW Platform |
+|---|---|
+| Linux | All supported platforms[^2] |
+| Docker | All supported platforms |
+| ESP-IDF | xtensa |
+| ESP-IDF | riscv32 |
+| ESP-IDF (PlatformIO) | xtensa |
+| ESP-IDF (PlatformIO) | riscv32 |
+| FreeRTOS | All supported platforms[^3] |
+[^2]: https://docs.kernel.org/arch/index.html
+[^3]: https://www.freertos.org/Documentation/02-Kernel/03-Supported-devices/00-Supported-devices
+[^4]: https://docs.zephyrproject.org/latest/boards/index.html
+
+## Prerequisites
+
+- An Exein Analyzer account with an API key
+- An object already created in the Analyzer platform — use the [Analyzer CLI](https://github.com/exein-io/homebrew-tools) or web UI to create one
+
+## Usage
+
+The action expects a pre-built firmware image. Build toolchains vary widely across projects (Docker, Yocto, Buildroot, ESP-IDF, etc.), so the action is designed to complement your existing build pipeline rather than replace or incorporate it.
+
+### Scan a firmware image
+
+```yaml
+- uses: exein-io/analyzer-scan@v1
+  with:
+    api-key: ${{ secrets.ANALYZER_API_KEY }}
+    object-id: '14e383ce-947f-11f0-8a00-0b80b65337cb'
+    scan-type: linux
+    file-path: ./image.tar.gz
+```
+
+### Scan after a Docker build
+
+```yaml
+- uses: docker/build-push-action@v5
+  with:
+    context: .
+    outputs: type=docker,dest=/tmp/image.tar
+
+- uses: exein-io/analyzer-scan@v1
+  with:
+    api-key: ${{ secrets.ANALYZER_API_KEY }}
+    object-id: '14e383ce-947f-11f0-8a00-0b80b65337cb'
+    scan-type: docker
+    file-path: /tmp/image.tar
+```
+
+### Download report and SBOM
+
+```yaml
+- uses: exein-io/analyzer-scan@v1
+  id: scan
+  with:
+    api-key: ${{ secrets.ANALYZER_API_KEY }}
+    object-id: '14e383ce-947f-11f0-8a00-0b80b65337cb'
+    scan-type: linux
+    file-path: ./build/firmware.tar.gz
+    download-report: 'true'
+    download-sbom: 'true'
+
+- run: echo "Scan results: ${{ steps.scan.outputs.scan-url }}"
+
+- uses: actions/upload-artifact@v4
+  with:
+    name: scan-artifacts
+    path: |
+      ${{ steps.scan.outputs.report-path }}
+      ${{ steps.scan.outputs.sbom-path }}
+```
+
+### Scan multiple images in parallel
+
+```yaml
+jobs:
+  scan:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        include:
+          - name: gateway
+            object-id: 'a1b2c3d4-5678-9abc-def0-1234567890ab'
+            scan-type: linux
+            file-path: ./build/gateway.bin
+          - name: sensor
+            object-id: 'e5f6a7b8-9012-3456-7890-abcdef123456'
+            scan-type: idf
+            file-path: ./build/sensor.bin
+          - name: api-server
+            object-id: 'a9b0c1d2-3456-7890-abcd-ef1234567890'
+            scan-type: docker
+            file-path: ./build/api-server.tar
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: exein-io/analyzer-scan@v1
+        with:
+          api-key: ${{ secrets.ANALYZER_API_KEY }}
+          object-id: ${{ matrix.object-id }}
+          scan-type: ${{ matrix.scan-type }}
+          file-path: ${{ matrix.file-path }}
+```
+
+## Inputs
+
+| Input | Required | Default | Description |
+|---|---|---|---|
+| `api-key` | yes | — | Exein Analyzer API key |
+| `api-url` | no | `https://analyzer.exein.io/api/` | Base API URL |
+| `object-id` | yes | — | UUID of the Analyzer object to scan against |
+| `scan-type` | yes | — | `docker`, `linux`, `idf`, or `sbom` |
+| `file-path` | yes | — | Path to the firmware/image/SBOM file |
+| `download-report` | no | `false` | Download PDF report after scan |
+| `download-sbom` | no | `false` | Download SBOM JSON after scan |
+| `cli-version` | no | `latest` | Pin [Analyzer CLI](https://github.com/exein-io/homebrew-tools) version (e.g. `v1.0.0`) |
+
+## Outputs
+
+| Output | Description |
+|---|---|
+| `scan-id` | UUID of the created scan |
+| `scan-url` | Direct link to scan results in the Analyzer UI |
+| `report-path` | Path to downloaded PDF report (set when `download-report: true`) |
+| `sbom-path` | Path to downloaded SBOM JSON (set when `download-sbom: true`) |
+
+## Analysis Types
+
+Each scan type runs a fixed set of analyses (not configurable):
+
+| Analysis | `docker` | `linux` | `idf` | `sbom` |
+|---|---|---|---|---|
+| `info` | yes | yes | yes | — |
+| `cve` | yes | yes | yes | yes |
+| `software-bom` | yes | yes | yes | yes |
+| `password-hash` | yes | yes | — | — |
+| `crypto` | yes | yes | — | — |
+| `malware` | yes | yes | — | — |
+| `hardening` | yes | yes | — | — |
+| `capabilities` | yes | yes | — | — |
+| `kernel` | — | yes | — | — |
+| `symbols` | — | — | yes | — |
+| `tasks` | — | — | yes | — |
+| `stack-overflow` | — | — | yes | — |
+
+## License
+
+Apache-2.0
