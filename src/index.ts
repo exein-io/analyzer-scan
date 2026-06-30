@@ -10,7 +10,7 @@ async function main() {
     const inputs = getInputs();
     core.setSecret(inputs.apiKey);
 
-    const analyzerPath = installAnalyzerCli(inputs.cliVersion);
+    const analyzerPath = installAnalyzerCli(inputs.cliVersion, inputs.apiKey, inputs.apiUrl);
 
     const filePath = path.resolve(inputs.filePath);
 

@@ -27630,6 +27630,8 @@ function getInputs() {
 
 // EXTERNAL MODULE: external "child_process"
 var external_child_process_ = __nccwpck_require__(5317);
+// EXTERNAL MODULE: external "fs"
+var external_fs_ = __nccwpck_require__(9896);
 // EXTERNAL MODULE: external "os"
 var external_os_ = __nccwpck_require__(857);
 ;// CONCATENATED MODULE: ./src/cli.ts
@@ -27637,27 +27639,70 @@ var external_os_ = __nccwpck_require__(857);
 
 
 
-const INSTALL_SCRIPT_URL = 'https://raw.githubusercontent.com/exein-io/analyzer-cli/main/dist/install.sh';
-function installAnalyzerCli(version) {
-    core.info(`Installing Analyzer CLI (${version})`);
-    const scriptPath = external_path_.join(external_os_.tmpdir(), 'analyzer-install.sh');
-    (0,external_child_process_.execFileSync)('curl', ['-fsSL', '-o', scriptPath, INSTALL_SCRIPT_URL], {
-        stdio: 'inherit',
-    });
-    const env = { ...process.env };
-    if (version !== 'latest') {
-        env.VERSION = version;
+
+/**
+ * Detects the runner's Rust target triple (e.g. `aarch64-apple-darwin`), matching the names the
+ * analyzer-cli release artifacts are published under. Ports the logic from analyzer-cli's `install.sh`.
+ */
+function detectPlatform() {
+    let osPart;
+    switch (external_os_.platform()) {
+        case 'linux':
+            osPart = 'unknown-linux-gnu';
+            break;
+        case 'darwin':
+            osPart = 'apple-darwin';
+            break;
+        default:
+            throw new Error(`Unsupported OS: ${external_os_.platform()}`);
     }
-    (0,external_child_process_.execFileSync)('bash', [scriptPath], { stdio: 'inherit', env });
-    const analyzerPath = (0,external_child_process_.execFileSync)('which', ['analyzer'], {
-        encoding: 'utf8',
-    }).trim();
+    let archPart;
+    switch (external_os_.arch()) {
+        case 'x64':
+            archPart = 'x86_64';
+            break;
+        case 'arm64':
+            archPart = 'aarch64';
+            break;
+        default:
+            throw new Error(`Unsupported architecture: ${external_os_.arch()}`);
+    }
+    return `${archPart}-${osPart}`;
+}
+/**
+ * Downloads the Analyzer CLI for the runner's platform from the Analyzer platform (the CLI repository is
+ * private, so it is served by the platform rather than from public GitHub releases) and installs it.
+ *
+ * @param version  CLI release to fetch — `latest` or a tag like `v1.0.0`.
+ * @param apiKey   Platform API key, sent as a Bearer token.
+ * @param apiUrl   Base API URL ending in `/api/` (e.g. `https://analyzer.exein.io/api/`).
+ * @returns Absolute path to the installed `analyzer` binary.
+ */
+function installAnalyzerCli(version, apiKey, apiUrl) {
+    const platform = detectPlatform();
+    core.info(`Installing Analyzer CLI (${version}) for ${platform}`);
+    const base = apiUrl.replace(/\/$/, '');
+    const url = `${base}/cli/download?version=${encodeURIComponent(version)}&platform=${platform}`;
+    const installDir = external_path_.join(external_os_.tmpdir(), 'analyzer-cli');
+    external_fs_.mkdirSync(installDir, { recursive: true });
+    const archivePath = external_path_.join(installDir, 'analyzer.tar.gz');
+    try {
+        (0,external_child_process_.execFileSync)('curl', ['-fsSL', '-H', `Authorization: Bearer ${apiKey}`, '-o', archivePath, url], {
+            stdio: 'inherit',
+        });
+        (0,external_child_process_.execFileSync)('tar', ['xzf', archivePath, '-C', installDir], { stdio: 'inherit' });
+    }
+    catch {
+        // Don't surface the underlying curl/tar error: it can echo the request URL (with query params).
+        throw new Error(`Failed to download Analyzer CLI ${version} for ${platform} from the platform`);
+    }
+    const analyzerPath = external_path_.join(installDir, 'analyzer');
+    external_fs_.chmodSync(analyzerPath, 0o755);
+    core.addPath(installDir);
     core.info(`Analyzer CLI installed at ${analyzerPath}`);
     return analyzerPath;
 }
 
-// EXTERNAL MODULE: external "fs"
-var external_fs_ = __nccwpck_require__(9896);
 ;// CONCATENATED MODULE: ./src/scan.ts
 
 
@@ -27748,7 +27793,7 @@ async function main() {
     try {
         const inputs = getInputs();
         core.setSecret(inputs.apiKey);
-        const analyzerPath = installAnalyzerCli(inputs.cliVersion);
+        const analyzerPath = installAnalyzerCli(inputs.cliVersion, inputs.apiKey, inputs.apiUrl);
         const filePath = external_path_.resolve(inputs.filePath);
         const scanId = launchScan(analyzerPath, inputs.apiKey, inputs.apiUrl, inputs.objectId, filePath, inputs.scanType, inputs.analysis);
         core.setOutput('scan-id', scanId);
