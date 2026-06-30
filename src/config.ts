@@ -1,6 +1,6 @@
 import * as core from '@actions/core';
 
-export type ScanType = 'docker' | 'linux' | 'idf';
+export type ScanType = 'docker' | 'linux' | 'idf' | 'sbom';
 
 export interface Inputs {
   apiKey: string;
@@ -14,9 +14,9 @@ export interface Inputs {
   cliVersion: string;
 }
 
-const VALID_SCAN_TYPES: ScanType[] = ['docker', 'linux', 'idf'];
+const VALID_SCAN_TYPES: ScanType[] = ['docker', 'linux', 'idf', 'sbom'];
 
-const VALID_ANALYSIS: Record<ScanType, string[]> = {
+const ANALYSES_BY_TYPE: Record<ScanType, string[]> = {
   docker: ['info', 'cve', 'password-hash', 'crypto', 'software-bom', 'malware', 'hardening', 'capabilities'],
   linux: [
     'info',
@@ -30,14 +30,8 @@ const VALID_ANALYSIS: Record<ScanType, string[]> = {
     'capabilities',
   ],
   idf: ['info', 'cve', 'software-bom', 'symbols', 'tasks', 'stack-overflow'],
+  sbom: ['cve', 'software-bom'],
 };
-
-function parseListInput(input: string): string[] {
-  return input
-    .split(/\r?\n/)
-    .map((s) => s.trim())
-    .filter(Boolean);
-}
 
 export function getInputs(): Inputs {
   const apiKey = core.getInput('api-key', { required: true });
@@ -45,7 +39,6 @@ export function getInputs(): Inputs {
   const objectId = core.getInput('object-id', { required: true });
   const scanTypeRaw = core.getInput('scan-type', { required: true });
   const filePath = core.getInput('file-path', { required: true });
-  const analysisRaw = parseListInput(core.getInput('analysis'));
   const downloadReport = core.getInput('download-report') === 'true';
   const downloadSbom = core.getInput('download-sbom') === 'true';
   const cliVersion = core.getInput('cli-version');
@@ -56,20 +49,7 @@ export function getInputs(): Inputs {
   }
   const scanType = scanTypeRaw as ScanType;
 
-  // Validate and default analysis types
-  let analysis = analysisRaw;
-  if (analysis.length === 0) {
-    analysis = VALID_ANALYSIS[scanType];
-  } else {
-    const valid = VALID_ANALYSIS[scanType];
-    for (const a of analysis) {
-      if (!valid.includes(a)) {
-        throw new Error(
-          `Invalid analysis type "${a}" for ${scanType} scans. Valid types: ${valid.join(', ')}`,
-        );
-      }
-    }
-  }
+  const analysis = ANALYSES_BY_TYPE[scanType];
 
   return {
     apiKey,

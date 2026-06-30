@@ -27565,8 +27565,10 @@ var core = __nccwpck_require__(7484);
 var external_path_ = __nccwpck_require__(6928);
 ;// CONCATENATED MODULE: ./src/config.ts
 
-const VALID_SCAN_TYPES = ['docker', 'linux', 'idf'];
-const VALID_ANALYSIS = {
+const VALID_SCAN_TYPES = ['docker', 'linux', 'idf', 'sbom'];
+// The analyses run for each scan type. These are fixed (not user-selectable): every scan runs the full set
+// for its type.
+const ANALYSES_BY_TYPE = {
     docker: ['info', 'cve', 'password-hash', 'crypto', 'software-bom', 'malware', 'hardening', 'capabilities'],
     linux: [
         'info',
@@ -27580,20 +27582,14 @@ const VALID_ANALYSIS = {
         'capabilities',
     ],
     idf: ['info', 'cve', 'software-bom', 'symbols', 'tasks', 'stack-overflow'],
+    sbom: ['cve', 'software-bom'],
 };
-function parseListInput(input) {
-    return input
-        .split(/\r?\n/)
-        .map((s) => s.trim())
-        .filter(Boolean);
-}
 function getInputs() {
     const apiKey = core.getInput('api-key', { required: true });
     const apiUrl = core.getInput('api-url');
     const objectId = core.getInput('object-id', { required: true });
     const scanTypeRaw = core.getInput('scan-type', { required: true });
     const filePath = core.getInput('file-path', { required: true });
-    const analysisRaw = parseListInput(core.getInput('analysis'));
     const downloadReport = core.getInput('download-report') === 'true';
     const downloadSbom = core.getInput('download-sbom') === 'true';
     const cliVersion = core.getInput('cli-version');
@@ -27602,19 +27598,8 @@ function getInputs() {
         throw new Error(`Invalid scan-type "${scanTypeRaw}". Must be one of: ${VALID_SCAN_TYPES.join(', ')}`);
     }
     const scanType = scanTypeRaw;
-    // Validate and default analysis types
-    let analysis = analysisRaw;
-    if (analysis.length === 0) {
-        analysis = VALID_ANALYSIS[scanType];
-    }
-    else {
-        const valid = VALID_ANALYSIS[scanType];
-        for (const a of analysis) {
-            if (!valid.includes(a)) {
-                throw new Error(`Invalid analysis type "${a}" for ${scanType} scans. Valid types: ${valid.join(', ')}`);
-            }
-        }
-    }
+    // Analyses are fixed per scan type and always run in full.
+    const analysis = ANALYSES_BY_TYPE[scanType];
     return {
         apiKey,
         apiUrl,
@@ -27640,10 +27625,6 @@ var external_os_ = __nccwpck_require__(857);
 
 
 
-/**
- * Detects the runner's Rust target triple (e.g. `aarch64-apple-darwin`), matching the names the
- * analyzer-cli release artifacts are published under. Ports the logic from analyzer-cli's `install.sh`.
- */
 function detectPlatform() {
     let osPart;
     switch (external_os_.platform()) {
@@ -27669,15 +27650,6 @@ function detectPlatform() {
     }
     return `${archPart}-${osPart}`;
 }
-/**
- * Downloads the Analyzer CLI for the runner's platform from the Analyzer platform (the CLI repository is
- * private, so it is served by the platform rather than from public GitHub releases) and installs it.
- *
- * @param version  CLI release to fetch — `latest` or a tag like `v1.0.0`.
- * @param apiKey   Platform API key, sent as a Bearer token.
- * @param apiUrl   Base API URL ending in `/api/` (e.g. `https://analyzer.exein.io/api/`).
- * @returns Absolute path to the installed `analyzer` binary.
- */
 function installAnalyzerCli(version, apiKey, apiUrl) {
     const platform = detectPlatform();
     core.info(`Installing Analyzer CLI (${version}) for ${platform}`);
@@ -27693,12 +27665,10 @@ function installAnalyzerCli(version, apiKey, apiUrl) {
         (0,external_child_process_.execFileSync)('tar', ['xzf', archivePath, '-C', installDir], { stdio: 'inherit' });
     }
     catch {
-        // Don't surface the underlying curl/tar error: it can echo the request URL (with query params).
         throw new Error(`Failed to download Analyzer CLI ${version} for ${platform} from the platform`);
     }
     const analyzerPath = external_path_.join(installDir, 'analyzer');
     external_fs_.chmodSync(analyzerPath, 0o755);
-    core.addPath(installDir);
     core.info(`Analyzer CLI installed at ${analyzerPath}`);
     return analyzerPath;
 }

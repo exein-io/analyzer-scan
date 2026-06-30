@@ -19,14 +19,11 @@ inputs:
 
   # Scan
   scan-type:
-    description: 'Type of scan to run: docker, linux, or idf'
+    description: 'Type of scan to run: docker, linux, idf, or sbom'
     required: true
   file-path:
-    description: 'Path to firmware/image file to scan'
+    description: 'Path to the firmware/image/SBOM file to scan'
     required: true
-  analysis:
-    description: 'Newline-separated list of analysis types to run (defaults applied per scan type if omitted)'
-    required: false
 
   # Post-scan
   download-report:

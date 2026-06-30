@@ -71,11 +71,6 @@ The action expects a pre-built firmware image. Build toolchains vary widely acro
     file-path: ./build/firmware.tar.gz
     download-report: 'true'
     download-sbom: 'true'
-    analysis: |
-      info
-      kernel
-      cve
-      software-bom
 
 - run: echo "Scan results: ${{ steps.scan.outputs.scan-url }}"
 
@@ -126,9 +121,8 @@ jobs:
 | `api-key` | yes | — | Exein Analyzer API key |
 | `api-url` | no | `https://analyzer.exein.io/api` | Base API URL |
 | `object-id` | yes | — | UUID of the Analyzer object to scan against |
-| `scan-type` | yes | — | `docker`, `linux`, or `idf` |
-| `file-path` | yes | — | Path to the firmware image file |
-| `analysis` | no | all for scan type | Newline-separated list of [analysis types](#analysis-types) to run |
+| `scan-type` | yes | — | `docker`, `linux`, `idf`, or `sbom` |
+| `file-path` | yes | — | Path to the firmware/image/SBOM file |
 | `download-report` | no | `false` | Download PDF report after scan |
 | `download-sbom` | no | `false` | Download SBOM JSON after scan |
 | `cli-version` | no | `latest` | Pin [Analyzer CLI](https://github.com/exein-io/analyzer-cli) version (e.g. `v1.0.0`) |
@@ -144,24 +138,22 @@ jobs:
 
 ## Analysis Types
 
-Available analysis types vary by scan type:
+Each scan type runs a fixed set of analyses (not configurable):
 
-| Analysis | `docker` | `linux` | `idf` |
-|---|---|---|---|
-| `info` | yes | yes | yes |
-| `cve` | yes | yes | yes |
-| `software-bom` | yes | yes | yes |
-| `password-hash` | yes | yes | — |
-| `crypto` | yes | yes | — |
-| `malware` | yes | yes | — |
-| `hardening` | yes | yes | — |
-| `capabilities` | yes | yes | — |
-| `kernel` | — | yes | — |
-| `symbols` | — | — | yes |
-| `tasks` | — | — | yes |
-| `stack-overflow` | — | — | yes |
-
-When `analysis` is not specified, all available types for the chosen scan type are run.
+| Analysis | `docker` | `linux` | `idf` | `sbom` |
+|---|---|---|---|---|
+| `info` | yes | yes | yes | — |
+| `cve` | yes | yes | yes | yes |
+| `software-bom` | yes | yes | yes | yes |
+| `password-hash` | yes | yes | — | — |
+| `crypto` | yes | yes | — | — |
+| `malware` | yes | yes | — | — |
+| `hardening` | yes | yes | — | — |
+| `capabilities` | yes | yes | — | — |
+| `kernel` | — | yes | — | — |
+| `symbols` | — | — | yes | — |
+| `tasks` | — | — | yes | — |
+| `stack-overflow` | — | — | yes | — |
 
 ## License
 
