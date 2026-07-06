@@ -12,7 +12,7 @@ GitHub Action for scanning firmware images with [Exein Analyzer](https://www.exe
 | ESP-IDF | riscv32 | GA |
 | ESP-IDF (PlatformIO) | xtensa | GA |
 | ESP-IDF (PlatformIO) | riscv32 | GA |
-| FreeRTOS | All supported platforms[^3] | Roadmap |
+| FreeRTOS | All supported platforms[^3] | GA Premium Service |
 | ZephyrOS | All supported platforms[^4] | Roadmap |
 | UEFI | x86_64 | Roadmap |
 | VxWorks (v5 and v6) | arm32 | Roadmap |
