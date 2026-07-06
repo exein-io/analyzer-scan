@@ -144,7 +144,7 @@ Each scan type runs a fixed set of analyses (not configurable):
 |---|---|---|---|---|
 | `info` | yes | yes | yes | — |
 | `cve` | yes | yes | yes | yes |
-| `software-bom` | yes | yes | yes | yes |
+| `sbom` | yes | yes | yes | yes |
 | `password-hash` | yes | yes | — | — |
 | `crypto` | yes | yes | — | — |
 | `malware` | yes | yes | — | — |

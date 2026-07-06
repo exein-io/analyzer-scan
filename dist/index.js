@@ -27566,23 +27566,11 @@ var external_path_ = __nccwpck_require__(6928);
 ;// CONCATENATED MODULE: ./src/config.ts
 
 const VALID_SCAN_TYPES = ['docker', 'linux', 'idf', 'sbom'];
-// The analyses run for each scan type. These are fixed (not user-selectable): every scan runs the full set
-// for its type.
 const ANALYSES_BY_TYPE = {
-    docker: ['info', 'cve', 'password-hash', 'crypto', 'software-bom', 'malware', 'hardening', 'capabilities'],
-    linux: [
-        'info',
-        'kernel',
-        'cve',
-        'password-hash',
-        'crypto',
-        'software-bom',
-        'malware',
-        'hardening',
-        'capabilities',
-    ],
-    idf: ['info', 'cve', 'software-bom', 'symbols', 'tasks', 'stack-overflow'],
-    sbom: ['cve', 'software-bom'],
+    docker: ['info', 'cve', 'password-hash', 'crypto', 'sbom', 'malware', 'hardening', 'capabilities'],
+    linux: ['info', 'kernel', 'cve', 'password-hash', 'crypto', 'sbom', 'malware', 'hardening', 'capabilities'],
+    idf: ['info', 'cve', 'sbom', 'symbols', 'tasks', 'stack-overflow'],
+    sbom: ['cve', 'sbom'],
 };
 function getInputs() {
     const apiKey = core.getInput('api-key', { required: true });
@@ -27598,7 +27586,6 @@ function getInputs() {
         throw new Error(`Invalid scan-type "${scanTypeRaw}". Must be one of: ${VALID_SCAN_TYPES.join(', ')}`);
     }
     const scanType = scanTypeRaw;
-    // Analyses are fixed per scan type and always run in full.
     const analysis = ANALYSES_BY_TYPE[scanType];
     return {
         apiKey,
