@@ -27567,10 +27567,10 @@ var external_path_ = __nccwpck_require__(6928);
 
 const VALID_SCAN_TYPES = ['docker', 'linux', 'idf', 'sbom'];
 const ANALYSES_BY_TYPE = {
-    docker: ['info', 'cve', 'password-hash', 'crypto', 'sbom', 'malware', 'hardening', 'capabilities'],
-    linux: ['info', 'kernel', 'cve', 'password-hash', 'crypto', 'sbom', 'malware', 'hardening', 'capabilities'],
-    idf: ['info', 'cve', 'sbom', 'symbols', 'tasks', 'stack-overflow'],
-    sbom: ['cve', 'sbom'],
+    docker: ['info', 'cve', 'password-hash', 'crypto', 'software-bom', 'malware', 'hardening', 'capabilities'],
+    linux: ['info', 'kernel', 'cve', 'password-hash', 'crypto', 'software-bom', 'malware', 'hardening', 'capabilities'],
+    idf: ['info', 'cve', 'software-bom', 'symbols', 'tasks', 'stack-overflow'],
+    sbom: ['cve', 'software-bom'],
 };
 function getInputs() {
     const apiKey = core.getInput('api-key', { required: true });
