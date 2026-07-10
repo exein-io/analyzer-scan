@@ -37,7 +37,7 @@ export function installAnalyzerCli(version: string, apiKey: string, apiUrl: stri
   core.info(`Installing Analyzer CLI (${version}) for ${platform}`);
 
   const base = apiUrl.replace(/\/$/, '');
-  const url = `${base}/cli/download?version=${encodeURIComponent(version)}&platform=${platform}`;
+  const url = `${base}/releases/analyzer-cli/${encodeURIComponent(version)}/analyzer-${platform}.tar.gz`;
 
   const installDir = path.join(os.tmpdir(), 'analyzer-cli');
   fs.mkdirSync(installDir, { recursive: true });
