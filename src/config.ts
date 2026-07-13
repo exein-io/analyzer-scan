@@ -18,7 +18,17 @@ const VALID_SCAN_TYPES: ScanType[] = ['docker', 'linux', 'idf', 'sbom'];
 
 const ANALYSES_BY_TYPE: Record<ScanType, string[]> = {
   docker: ['info', 'cve', 'password-hash', 'crypto', 'software-bom', 'malware', 'hardening', 'capabilities'],
-  linux: ['info', 'kernel', 'cve', 'password-hash', 'crypto', 'software-bom', 'malware', 'hardening', 'capabilities'],
+  linux: [
+    'info',
+    'kernel',
+    'cve',
+    'password-hash',
+    'crypto',
+    'software-bom',
+    'malware',
+    'hardening',
+    'capabilities',
+  ],
   idf: ['info', 'cve', 'software-bom', 'symbols', 'tasks', 'stack-overflow'],
   sbom: ['cve', 'software-bom'],
 };
