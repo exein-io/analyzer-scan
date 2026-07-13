@@ -27565,8 +27565,8 @@ var core = __nccwpck_require__(7484);
 var external_path_ = __nccwpck_require__(6928);
 ;// CONCATENATED MODULE: ./src/config.ts
 
-const VALID_SCAN_TYPES = ['docker', 'linux', 'idf'];
-const VALID_ANALYSIS = {
+const VALID_SCAN_TYPES = ['docker', 'linux', 'idf', 'sbom'];
+const ANALYSES_BY_TYPE = {
     docker: ['info', 'cve', 'password-hash', 'crypto', 'software-bom', 'malware', 'hardening', 'capabilities'],
     linux: [
         'info',
@@ -27580,20 +27580,14 @@ const VALID_ANALYSIS = {
         'capabilities',
     ],
     idf: ['info', 'cve', 'software-bom', 'symbols', 'tasks', 'stack-overflow'],
+    sbom: ['cve', 'software-bom'],
 };
-function parseListInput(input) {
-    return input
-        .split(/\r?\n/)
-        .map((s) => s.trim())
-        .filter(Boolean);
-}
 function getInputs() {
     const apiKey = core.getInput('api-key', { required: true });
     const apiUrl = core.getInput('api-url');
     const objectId = core.getInput('object-id', { required: true });
     const scanTypeRaw = core.getInput('scan-type', { required: true });
     const filePath = core.getInput('file-path', { required: true });
-    const analysisRaw = parseListInput(core.getInput('analysis'));
     const downloadReport = core.getInput('download-report') === 'true';
     const downloadSbom = core.getInput('download-sbom') === 'true';
     const cliVersion = core.getInput('cli-version');
@@ -27602,19 +27596,7 @@ function getInputs() {
         throw new Error(`Invalid scan-type "${scanTypeRaw}". Must be one of: ${VALID_SCAN_TYPES.join(', ')}`);
     }
     const scanType = scanTypeRaw;
-    // Validate and default analysis types
-    let analysis = analysisRaw;
-    if (analysis.length === 0) {
-        analysis = VALID_ANALYSIS[scanType];
-    }
-    else {
-        const valid = VALID_ANALYSIS[scanType];
-        for (const a of analysis) {
-            if (!valid.includes(a)) {
-                throw new Error(`Invalid analysis type "${a}" for ${scanType} scans. Valid types: ${valid.join(', ')}`);
-            }
-        }
-    }
+    const analysis = ANALYSES_BY_TYPE[scanType];
     return {
         apiKey,
         apiUrl,
@@ -27630,6 +27612,8 @@ function getInputs() {
 
 // EXTERNAL MODULE: external "child_process"
 var external_child_process_ = __nccwpck_require__(5317);
+// EXTERNAL MODULE: external "fs"
+var external_fs_ = __nccwpck_require__(9896);
 // EXTERNAL MODULE: external "os"
 var external_os_ = __nccwpck_require__(857);
 ;// CONCATENATED MODULE: ./src/cli.ts
@@ -27637,27 +27621,55 @@ var external_os_ = __nccwpck_require__(857);
 
 
 
-const INSTALL_SCRIPT_URL = 'https://raw.githubusercontent.com/exein-io/analyzer-cli/main/dist/install.sh';
-function installAnalyzerCli(version) {
-    core.info(`Installing Analyzer CLI (${version})`);
-    const scriptPath = external_path_.join(external_os_.tmpdir(), 'analyzer-install.sh');
-    (0,external_child_process_.execFileSync)('curl', ['-fsSL', '-o', scriptPath, INSTALL_SCRIPT_URL], {
-        stdio: 'inherit',
-    });
-    const env = { ...process.env };
-    if (version !== 'latest') {
-        env.VERSION = version;
+
+function detectPlatform() {
+    let osPart;
+    switch (external_os_.platform()) {
+        case 'linux':
+            osPart = 'unknown-linux-gnu';
+            break;
+        case 'darwin':
+            osPart = 'apple-darwin';
+            break;
+        default:
+            throw new Error(`Unsupported OS: ${external_os_.platform()}`);
     }
-    (0,external_child_process_.execFileSync)('bash', [scriptPath], { stdio: 'inherit', env });
-    const analyzerPath = (0,external_child_process_.execFileSync)('which', ['analyzer'], {
-        encoding: 'utf8',
-    }).trim();
+    let archPart;
+    switch (external_os_.arch()) {
+        case 'x64':
+            archPart = 'x86_64';
+            break;
+        case 'arm64':
+            archPart = 'aarch64';
+            break;
+        default:
+            throw new Error(`Unsupported architecture: ${external_os_.arch()}`);
+    }
+    return `${archPart}-${osPart}`;
+}
+function installAnalyzerCli(version, apiKey, apiUrl) {
+    const platform = detectPlatform();
+    core.info(`Installing Analyzer CLI (${version}) for ${platform}`);
+    const base = apiUrl.replace(/\/$/, '');
+    const url = `${base}/releases/analyzer-cli/${encodeURIComponent(version)}/analyzer-${platform}.tar.gz`;
+    const installDir = external_path_.join(external_os_.tmpdir(), 'analyzer-cli');
+    external_fs_.mkdirSync(installDir, { recursive: true });
+    const archivePath = external_path_.join(installDir, 'analyzer.tar.gz');
+    try {
+        (0,external_child_process_.execFileSync)('curl', ['-fsSL', '-H', `Authorization: Bearer ${apiKey}`, '-o', archivePath, url], {
+            stdio: 'inherit',
+        });
+        (0,external_child_process_.execFileSync)('tar', ['xzf', archivePath, '-C', installDir], { stdio: 'inherit' });
+    }
+    catch {
+        throw new Error(`Failed to download Analyzer CLI ${version} for ${platform} from the platform`);
+    }
+    const analyzerPath = external_path_.join(installDir, 'analyzer');
+    external_fs_.chmodSync(analyzerPath, 0o755);
     core.info(`Analyzer CLI installed at ${analyzerPath}`);
     return analyzerPath;
 }
 
-// EXTERNAL MODULE: external "fs"
-var external_fs_ = __nccwpck_require__(9896);
 ;// CONCATENATED MODULE: ./src/scan.ts
 
 
@@ -27748,7 +27760,7 @@ async function main() {
     try {
         const inputs = getInputs();
         core.setSecret(inputs.apiKey);
-        const analyzerPath = installAnalyzerCli(inputs.cliVersion);
+        const analyzerPath = installAnalyzerCli(inputs.cliVersion, inputs.apiKey, inputs.apiUrl);
         const filePath = external_path_.resolve(inputs.filePath);
         const scanId = launchScan(analyzerPath, inputs.apiKey, inputs.apiUrl, inputs.objectId, filePath, inputs.scanType, inputs.analysis);
         core.setOutput('scan-id', scanId);
