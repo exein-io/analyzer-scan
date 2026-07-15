@@ -2,6 +2,12 @@ name: 'Scan firmware and container images with Exein Analyzer'
 
 description: 'Runs Exein Analyzer CLI to scan Docker images, Linux firmware, or IDF firmware for vulnerabilities.'
 
+author: 'Exein SpA'
+
+branding:
+  icon: 'shield'
+  color: 'blue'
+
 inputs:
   # Authentication
   api-key:
