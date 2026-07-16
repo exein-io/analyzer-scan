@@ -1,6 +1,10 @@
-# Exein Analyzer Scan
+<p align="center">
+  <img src="statics/Github_action.png" alt="Project Logo"/>
+</p>
 
-GitHub Action for scanning firmware images with [Exein Analyzer](https://www.exein.io/platform/exein-analyzer).
+# Exein Analyzer Scan Action
+
+GitHub Action for [Exein Analyzer](https://www.exein.io/platform/exein-analyzer). Scans pre-built firmware images, container images, and SBOMs for vulnerabilities, supply chain risks, and security misconfigurations on every build.
 
 ## Supported Firmware
 
@@ -26,7 +30,7 @@ GitHub Action for scanning firmware images with [Exein Analyzer](https://www.exe
 ## Prerequisites
 
 - An Exein Analyzer account with an API key
-- An object already created in the Analyzer platform — use the [Analyzer CLI](https://github.com/exein-io/analyzer-cli) or web UI to create one
+- An object already created in the Analyzer platform — use the [Analyzer CLI](https://github.com/exein-io/homebrew-tools) or web UI to create one
 
 ## Usage
 
@@ -125,7 +129,7 @@ jobs:
 | `file-path` | yes | — | Path to the firmware/image/SBOM file |
 | `download-report` | no | `false` | Download PDF report after scan |
 | `download-sbom` | no | `false` | Download SBOM JSON after scan |
-| `cli-version` | no | `latest` | Pin [Analyzer CLI](https://github.com/exein-io/analyzer-cli) version (e.g. `v1.0.0`) |
+| `cli-version` | no | `latest` | Pin [Analyzer CLI](https://github.com/exein-io/homebrew-tools) version (e.g. `v1.0.0`) |
 
 ## Outputs
 
