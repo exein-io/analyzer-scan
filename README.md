@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="statics/Github_action.png" alt="Project Logo"/>
+  <img src="assets/header.png" alt="Project Logo"/>
 </p>
 
 GitHub Action for [Exein Analyzer](https://www.exein.io/platform/exein-analyzer). Scans pre-built firmware images, container images, and SBOMs for vulnerabilities, supply chain risks, and security misconfigurations on every build.
