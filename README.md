@@ -2,27 +2,19 @@
   <img src="statics/Github_action.png" alt="Project Logo"/>
 </p>
 
-# Exein Analyzer Scan Action
-
 GitHub Action for [Exein Analyzer](https://www.exein.io/platform/exein-analyzer). Scans pre-built firmware images, container images, and SBOMs for vulnerabilities, supply chain risks, and security misconfigurations on every build.
 
 ## Supported Firmware
 
-| OS / Framework / Runtime | HW Platform | Support[^1] |
-|---|---|---|
-| Linux | All supported platforms[^2] | GA |
-| Docker | All supported platforms | GA |
-| ESP-IDF | xtensa | GA |
-| ESP-IDF | riscv32 | GA |
-| ESP-IDF (PlatformIO) | xtensa | GA |
-| ESP-IDF (PlatformIO) | riscv32 | GA |
-| FreeRTOS | All supported platforms[^3] | GA Premium Service |
-| ZephyrOS | All supported platforms[^4] | Roadmap |
-| UEFI | x86_64 | Roadmap |
-| VxWorks (v5 and v6) | arm32 | Roadmap |
-| VxWorks (v5 and v6) | ppc | Roadmap |
-
-[^1]: **GA**: Generally Available. **Roadmap**: Scheduled in Product Roadmap.
+| OS / Framework / Runtime | HW Platform |
+|---|---|
+| Linux | All supported platforms[^2] |
+| Docker | All supported platforms |
+| ESP-IDF | xtensa |
+| ESP-IDF | riscv32 |
+| ESP-IDF (PlatformIO) | xtensa |
+| ESP-IDF (PlatformIO) | riscv32 |
+| FreeRTOS | All supported platforms[^3] |
 [^2]: https://docs.kernel.org/arch/index.html
 [^3]: https://www.freertos.org/Documentation/02-Kernel/03-Supported-devices/00-Supported-devices
 [^4]: https://docs.zephyrproject.org/latest/boards/index.html
