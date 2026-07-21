@@ -1,24 +1,20 @@
-# Exein Analyzer Scan
+<p align="center">
+  <img src="assets/header.png" alt="Project Logo"/>
+</p>
 
-GitHub Action for scanning firmware images with [Exein Analyzer](https://www.exein.io/platform/exein-analyzer).
+GitHub Action for [Exein Analyzer](https://www.exein.io/platform/exein-analyzer). Scans pre-built firmware images, container images, and SBOMs for vulnerabilities, supply chain risks, and security misconfigurations on every build.
 
 ## Supported Firmware
 
-| OS / Framework / Runtime | HW Platform | Support[^1] |
-|---|---|---|
-| Linux | All supported platforms[^2] | GA |
-| Docker | All supported platforms | GA |
-| ESP-IDF | xtensa | GA |
-| ESP-IDF | riscv32 | GA |
-| ESP-IDF (PlatformIO) | xtensa | GA |
-| ESP-IDF (PlatformIO) | riscv32 | GA |
-| FreeRTOS | All supported platforms[^3] | GA Premium Service |
-| ZephyrOS | All supported platforms[^4] | Roadmap |
-| UEFI | x86_64 | Roadmap |
-| VxWorks (v5 and v6) | arm32 | Roadmap |
-| VxWorks (v5 and v6) | ppc | Roadmap |
-
-[^1]: **GA**: Generally Available. **Roadmap**: Scheduled in Product Roadmap.
+| OS / Framework / Runtime | HW Platform |
+|---|---|
+| Linux | All supported platforms[^2] |
+| Docker | All supported platforms |
+| ESP-IDF | xtensa |
+| ESP-IDF | riscv32 |
+| ESP-IDF (PlatformIO) | xtensa |
+| ESP-IDF (PlatformIO) | riscv32 |
+| FreeRTOS | All supported platforms[^3] |
 [^2]: https://docs.kernel.org/arch/index.html
 [^3]: https://www.freertos.org/Documentation/02-Kernel/03-Supported-devices/00-Supported-devices
 [^4]: https://docs.zephyrproject.org/latest/boards/index.html
@@ -26,7 +22,7 @@ GitHub Action for scanning firmware images with [Exein Analyzer](https://www.exe
 ## Prerequisites
 
 - An Exein Analyzer account with an API key
-- An object already created in the Analyzer platform — use the [Analyzer CLI](https://github.com/exein-io/analyzer-cli) or web UI to create one
+- An object already created in the Analyzer platform — use the [Analyzer CLI](https://github.com/exein-io/homebrew-tools) or web UI to create one
 
 ## Usage
 
@@ -119,13 +115,13 @@ jobs:
 | Input | Required | Default | Description |
 |---|---|---|---|
 | `api-key` | yes | — | Exein Analyzer API key |
-| `api-url` | no | `https://analyzer.exein.io/api` | Base API URL |
+| `api-url` | no | `https://analyzer.exein.io/api/` | Base API URL |
 | `object-id` | yes | — | UUID of the Analyzer object to scan against |
 | `scan-type` | yes | — | `docker`, `linux`, `idf`, or `sbom` |
 | `file-path` | yes | — | Path to the firmware/image/SBOM file |
 | `download-report` | no | `false` | Download PDF report after scan |
 | `download-sbom` | no | `false` | Download SBOM JSON after scan |
-| `cli-version` | no | `latest` | Pin [Analyzer CLI](https://github.com/exein-io/analyzer-cli) version (e.g. `v1.0.0`) |
+| `cli-version` | no | `latest` | Pin [Analyzer CLI](https://github.com/exein-io/homebrew-tools) version (e.g. `v1.0.0`) |
 
 ## Outputs
 
@@ -144,7 +140,7 @@ Each scan type runs a fixed set of analyses (not configurable):
 |---|---|---|---|---|
 | `info` | yes | yes | yes | — |
 | `cve` | yes | yes | yes | yes |
-| `sbom` | yes | yes | yes | yes |
+| `software-bom` | yes | yes | yes | yes |
 | `password-hash` | yes | yes | — | — |
 | `crypto` | yes | yes | — | — |
 | `malware` | yes | yes | — | — |

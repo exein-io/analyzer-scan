@@ -1,3 +1,5 @@
 node_modules/
 lib/
 .yarn/install-state.gz
+.claude/
+.env*
