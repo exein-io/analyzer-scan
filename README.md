@@ -92,15 +92,15 @@ jobs:
             scan-type: linux
             file-path: ./build/gateway.bin
           - name: sensor
-            object-id: 'e5f6g7h8-9012-3456-7890-abcdef123456'
+            object-id: 'e5f6a7b8-9012-3456-7890-abcdef123456'
             scan-type: idf
             file-path: ./build/sensor.bin
           - name: api-server
-            object-id: 'i9j0k1l2-3456-7890-abcd-ef1234567890'
+            object-id: 'a9b0c1d2-3456-7890-abcd-ef1234567890'
             scan-type: docker
             file-path: ./build/api-server.tar
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - uses: exein-io/analyzer-scan@v1
         with:
