@@ -1,52 +1,45 @@
 import * as core from '@actions/core';
-import * as path from 'path';
-import { getInputs } from './config.js';
+import { spawnCli } from './analyzer.js';
 import { installAnalyzerCli } from './cli.js';
-import { launchScan } from './scan.js';
-import { downloadReport, downloadSbom } from './artifacts.js';
+import { runGate, runStatus, runUpload, type Deps } from './gate.js';
+import { parseInputs } from './inputs.js';
 
 async function main() {
   try {
-    const inputs = getInputs();
+    const inputs = parseInputs(core.getInput);
     core.setSecret(inputs.apiKey);
 
-    const analyzerPath = installAnalyzerCli(inputs.cliVersion, inputs.apiKey, inputs.apiUrl);
+    const analyzerPath = installAnalyzerCli(inputs.cliVersion, inputs.apiKey, inputs.apiUrl, core.info);
+    const deps: Deps = {
+      cli: spawnCli(analyzerPath, core.info),
+      log: core,
+      setOutput: core.setOutput,
+      writeSummary: async (markdown) => {
+        if (process.env.GITHUB_STEP_SUMMARY) {
+          await core.summary.addRaw(markdown).write();
+        }
+      },
+      outDir: process.cwd(),
+      now: Date.now,
+    };
 
-    const filePath = path.resolve(inputs.filePath);
-
-    const scanId = launchScan(
-      analyzerPath,
-      inputs.apiKey,
-      inputs.apiUrl,
-      inputs.objectId,
-      filePath,
-      inputs.scanType,
-      inputs.analysis,
-    );
-
-    core.setOutput('scan-id', scanId);
-
-    const scanUrl = `${inputs.apiUrl.replace(/\/api\/?$/, '')}/objects/${inputs.objectId}/scans/${scanId}`;
-    core.setOutput('scan-url', scanUrl);
-
-    if (inputs.downloadReport) {
-      const reportPath = downloadReport(analyzerPath, inputs.apiKey, inputs.apiUrl, scanId);
-      if (reportPath) {
-        core.setOutput('report-path', reportPath);
+    switch (inputs.mode) {
+      case 'scan':
+        await runUpload(inputs, deps);
+        break;
+      case 'status':
+        await runStatus(inputs, deps);
+        break;
+      case 'gate': {
+        const report = await runGate(inputs, deps);
+        if (!report.passed) {
+          core.setFailed(report.failures.join('\n') || `The gate failed for scan ${report['scan-id']}`);
+        }
+        break;
       }
     }
-
-    if (inputs.downloadSbom) {
-      const sbomPath = downloadSbom(analyzerPath, inputs.apiKey, inputs.apiUrl, scanId);
-      if (sbomPath) {
-        core.setOutput('sbom-path', sbomPath);
-      }
-    }
-
-    core.info(`Scan complete: ${scanUrl}`);
   } catch (error) {
-    const msg = error instanceof Error ? error.message : String(error);
-    core.setFailed(msg);
+    core.setFailed(error instanceof Error ? error.message : String(error));
   }
 }
 
