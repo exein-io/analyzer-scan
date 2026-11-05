@@ -13,6 +13,6 @@ Closes #
 ## Checklist
 
 - [ ] Commits / PR title follow [Conventional Commits](https://www.conventionalcommits.org/)
-- [ ] Ran `yarn all` (lint + prettier + build) locally
+- [ ] Ran `yarn all` (lint + prettier + typecheck + test + build) locally
 - [ ] Rebuilt and committed `dist/` (CI fails if `dist/` is out of date)
 - [ ] Updated documentation (`README.md` / `action.yaml`) if inputs, outputs, or behavior changed
