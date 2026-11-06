@@ -1,6 +1,6 @@
 name: 'Scan firmware and container images with Exein Analyzer'
 
-description: 'Runs Exein Analyzer CLI to scan Docker images, Linux firmware, or IDF firmware for vulnerabilities.'
+description: 'Scans Docker images and Linux firmware with Exein Analyzer through the Analyzer CLI, and can gate a release on its CVEs.'
 
 author: 'Exein SpA'
 
@@ -14,38 +14,54 @@ inputs:
     description: 'API key for the Exein Analyzer platform'
     required: true
   api-url:
-    description: 'Base API URL (supports on-prem deployments)'
+    description: 'API root, ending in /api (supports on-prem deployments). The /api/v2 form works too'
     required: false
     default: 'https://analyzer.exein.io/api/'
 
-  # Object
+  # Object: by id, or by key
   object-id:
-    description: 'UUID of the Analyzer object to launch the scan against'
-    required: true
+    description: 'UUID of the Analyzer object to upload to. Set object-id or object-key, unless the gate takes scan-id'
+    required: false
+  object-key:
+    description: 'Key of the object to upload to, made when new, instead of object-id (lowercase words joined by hyphens, at most 63 characters)'
+    required: false
+  object-name:
+    description: 'Name of the object when object-key is new. Defaults to the key'
+    required: false
 
   # Scan
   scan-type:
-    description: 'Type of scan to run: docker, linux, idf, or sbom'
-    required: true
+    description: 'Type of image: docker or linux. Not with scan-id'
+    required: false
   file-path:
-    description: 'Path to the firmware/image/SBOM file to scan'
-    required: true
-
-  # Post-scan
-  download-report:
-    description: 'Download PDF report after scan completes'
+    description: 'Path to the image to scan. Not with scan-id'
     required: false
-    default: 'false'
-  download-sbom:
-    description: 'Download SBOM JSON after scan completes'
+  build-vex:
+    description: 'Path to the CycloneDX VEX of the build, one JSON object of at most 64 MiB, sent before the image. A CVE it marks not_affected or resolved counts as unreachable. Not with scan-id'
     required: false
-    default: 'false'
 
   # CLI
   cli-version:
-    description: 'Pin Analyzer CLI release version (e.g. v1.0.0). Defaults to latest'
+    description: 'Analyzer CLI release to run. Defaults to v1.0.0, the release this major of the action is built for'
     required: false
-    default: 'latest'
+    default: 'v1.0.0'
+
+  # Release gate
+  gate:
+    description: 'false only uploads the image (analyzer scan new) and sets scan-id, for a later gate with scan-id. true runs the release gate: analyzer scan new, then analyzer scan gate, which waits for the CVE classification, downloads the SBOM, VEX and report, and fails on blocking CVEs. status reads the status of the scan of scan-id once, and sets scan-status and finished. A scan that ended in error or was canceled does not fail it. The gate decides on that'
+    required: false
+    default: 'false'
+  scan-id:
+    description: 'Gate: gate this scan made earlier instead of uploading an image. gate status needs it, as the scan to check'
+    required: false
+  fail-on:
+    description: 'Gate: lowest severity that blocks: critical, high, medium, or low. none reports only, for pipelines that gate on something else: no CVE fails the step, and blocking is 0'
+    required: false
+    default: 'critical'
+  timeout:
+    description: 'How long the step waits for the scan, counted from its start, such as 5h30m, 90m or 45s. Read by the gate, and by gate status, which waits 20m at most. gate false does not wait'
+    required: false
+    default: '5h30m'
 
 outputs:
   scan-id:
@@ -53,9 +69,21 @@ outputs:
   scan-url:
     description: 'Direct link to scan results in the Analyzer UI'
   report-path:
-    description: 'Local path to PDF report (only set when download-report is true)'
+    description: 'Gate: local path to the PDF report'
   sbom-path:
-    description: 'Local path to SBOM JSON (only set when download-sbom is true)'
+    description: 'Gate: local path to the SBOM JSON'
+  object-id:
+    description: 'UUID of the object'
+  vex-path:
+    description: 'Gate: local path to the VEX JSON'
+  cve-counts:
+    description: 'Gate: the CVE counts per severity, as JSON'
+  blocking:
+    description: 'Gate: number of reachable + unresolved CVEs at fail-on or above; empty when the scan has no counts'
+  scan-status:
+    description: 'Gate and gate status: the status of the scan: pending, in-progress, success, error or canceled'
+  finished:
+    description: "gate status: 'true' once the scan ended in success, error or canceled, 'false' while it runs"
 
 runs:
   using: "node24"

@@ -1,4 +1,3 @@
-import * as core from '@actions/core';
 import { execFileSync } from 'child_process';
 import * as fs from 'fs';
 import * as os from 'os';
@@ -32,20 +31,32 @@ function detectPlatform(): string {
   return `${archPart}-${osPart}`;
 }
 
-export function installAnalyzerCli(version: string, apiKey: string, apiUrl: string): string {
-  const platform = detectPlatform();
-  core.info(`Installing Analyzer CLI (${version}) for ${platform}`);
+/** The platform serves the CLI under the API root, `/api`, also when `api-url` is the `/api/v2` form. */
+export function cliDownloadUrl(apiUrl: string, version: string, platform: string): string {
+  const root = apiUrl.replace(/\/+$/, '').replace(/\/api\/v2$/, '/api');
+  return `${root}/releases/analyzer-cli/${encodeURIComponent(version)}/analyzer-${platform}.tar.gz`;
+}
 
-  const base = apiUrl.replace(/\/$/, '');
-  const url = `${base}/releases/analyzer-cli/${encodeURIComponent(version)}/analyzer-${platform}.tar.gz`;
+export function installAnalyzerCli(
+  version: string,
+  apiKey: string,
+  apiUrl: string,
+  info: (message: string) => void,
+): string {
+  const platform = detectPlatform();
+  info(`Installing Analyzer CLI (${version}) for ${platform}`);
+
+  const url = cliDownloadUrl(apiUrl, version, platform);
 
   const installDir = path.join(os.tmpdir(), 'analyzer-cli');
   fs.mkdirSync(installDir, { recursive: true });
   const archivePath = path.join(installDir, 'analyzer.tar.gz');
 
   try {
-    execFileSync('curl', ['-fsSL', '-H', `Authorization: Bearer ${apiKey}`, '-o', archivePath, url], {
-      stdio: 'inherit',
+    // The header goes in on stdin (-H @-), so the key stays out of the process list.
+    execFileSync('curl', ['-fsSL', '-H', '@-', '-o', archivePath, url], {
+      input: `Authorization: Bearer ${apiKey}\n`,
+      stdio: ['pipe', 'inherit', 'inherit'],
     });
     execFileSync('tar', ['xzf', archivePath, '-C', installDir], { stdio: 'inherit' });
   } catch {
@@ -55,6 +66,6 @@ export function installAnalyzerCli(version: string, apiKey: string, apiUrl: stri
   const analyzerPath = path.join(installDir, 'analyzer');
   fs.chmodSync(analyzerPath, 0o755);
 
-  core.info(`Analyzer CLI installed at ${analyzerPath}`);
+  info(`Analyzer CLI installed at ${analyzerPath}`);
   return analyzerPath;
 }

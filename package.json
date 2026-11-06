@@ -1,16 +1,18 @@
 {
     "name": "analyzer-scan",
-    "version": "1.0.0",
-    "description": "GitHub Action for scanning Docker images, Linux firmware, and IDF firmware with Exein Analyzer",
+    "version": "2.0.0",
+    "description": "GitHub Action for scanning Docker images and Linux firmware with Exein Analyzer",
     "main": "dist/index.js",
     "author": "Exein SpA",
     "scripts": {
         "build": "ncc build src/index.ts -o dist",
         "lint": "eslint src/",
+        "typecheck": "tsc",
+        "test": "node --import tsx --test 'src/**/*.test.ts'",
         "lint:fix": "eslint src/ --fix",
         "prettier": "prettier --check 'src/**/*.ts'",
         "prettier:fix": "prettier --write 'src/**/*.ts'",
-        "all": "yarn lint && yarn prettier && yarn build"
+        "all": "yarn lint && yarn prettier && yarn typecheck && yarn test && yarn build"
     },
     "packageManager": "yarn@4.9.1",
     "license": "Apache-2.0",
@@ -47,6 +49,7 @@
         "@vercel/ncc": "^0.45.0",
         "eslint": "^10.11.0",
         "prettier": "^3.9.9",
+        "tsx": "^4.23.15",
         "typescript": "^5.5.2",
         "typescript-eslint": "^8.71.0"
     }
