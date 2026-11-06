@@ -426,6 +426,10 @@ describe('gate: true', () => {
       assert.equal(r.outputs.has('cve-counts'), false);
     });
 
+    it('outputs no scan status, so a workflow tells no result from a failed gate', () => {
+      assert.equal(r.outputs.has('scan-status'), false);
+    });
+
     it('writes the error summary, with the link', () => {
       assert.deepEqual(r.summaries, [renderErrorSummary(error, SCAN_URL)]);
     });
@@ -524,6 +528,11 @@ describe('gate: true', () => {
   });
 
   describe('the timeout', () => {
+    it('stops an upload that runs past it', async () => {
+      const r = await run(gate());
+      assert.equal(r.calls[0].timeoutSeconds, 19_800);
+    });
+
     it('counts the upload', async () => {
       const r = await run(gate(), { new: { ...done(NEW_SCAN), takesMs: 30 * 60_000 } });
       assert.equal(r.calls[1].args[r.calls[1].args.indexOf('--timeout') + 1], '18000s');

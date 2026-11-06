@@ -31,10 +31,10 @@ inputs:
 
   # Scan
   scan-type:
-    description: 'Type of image: docker or linux'
+    description: 'Type of image: docker or linux. Not with scan-id'
     required: false
   file-path:
-    description: 'Path to the image to scan'
+    description: 'Path to the image to scan. Not with scan-id'
     required: false
   build-vex:
     description: 'Path to the CycloneDX VEX of the build, one JSON object of at most 64 MiB, sent before the image. A CVE it marks not_affected or resolved counts as unreachable. Not with scan-id'

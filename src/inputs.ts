@@ -195,8 +195,10 @@ export function parseInputs(getInput: GetInput): Inputs {
         'Set object-id or object-key (with object-name) to upload an image, or scan-id to gate a scan made earlier, not both',
       );
     }
-    if (getInput('build-vex')) {
-      throw new Error('build-vex goes with the upload of an image, not with scan-id');
+    for (const name of ['build-vex', 'file-path', 'scan-type']) {
+      if (getInput(name)) {
+        throw new Error(`${name} goes with the upload of an image, not with scan-id`);
+      }
     }
     return { ...gate, target: { scanId } };
   }

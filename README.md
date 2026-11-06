@@ -166,7 +166,7 @@ A build that already knows some CVEs don't apply sends its CycloneDX VEX with `b
     fail-on: high
 ```
 
-The file must be one JSON object of at most 64 MiB. The CLI checks that before it uploads anything, so a file that is missing, too large or not a JSON object fails the step at once, not after the image uploads. Every mode that uploads sends it. With `scan-id` nothing is uploaded, so `build-vex` is refused there.
+The file must be one JSON object of at most 64 MiB. The CLI checks that before it uploads anything, so a file that is missing, too large or not a JSON object fails the step at once, not after the image uploads. Every mode that uploads sends it. With `scan-id` nothing is uploaded, so `build-vex`, `file-path` and `scan-type` are refused there.
 
 ### Draft release flow
 
@@ -353,8 +353,9 @@ jobs:
         run: gh release edit "$TAG" --draft=false
 
       # Later runs skip this draft. To gate it again, drop the line from its notes.
+      # A gate with no result, such as an outage or the timeout, sets no scan-status, so the next run tries again.
       - name: Mark the draft as failed
-        if: failure() && steps.gate.outcome == 'failure'
+        if: failure() && steps.gate.outcome == 'failure' && steps.gate.outputs.scan-status != ''
         env:
           TAG: ${{ steps.draft.outputs.tag }}
         run: |
@@ -423,8 +424,8 @@ The SBOM, VEX and report land in the working directory as `<scan-id>-sbom.json`,
 | `object-id` | one of the two, unless `scan-id` | — | UUID of the object to upload to |
 | `object-key` | one of the two, unless `scan-id` | — | Key of the object to upload to, made when the key is new. Lowercase letters and digits in words joined by single hyphens, at most 63 characters, such as `gateway-firmware-arm64` |
 | `object-name` | no | the key | Name of the object when `object-key` is new |
-| `scan-type` | yes, unless `scan-id` | — | `docker` or `linux` |
-| `file-path` | yes, unless `scan-id` | — | Path to the image |
+| `scan-type` | yes, unless `scan-id` | — | `docker` or `linux`. Not with `scan-id` |
+| `file-path` | yes, unless `scan-id` | — | Path to the image. Not with `scan-id` |
 | `build-vex` | no | — | Path to the [build's CycloneDX VEX](#send-the-builds-vex), one JSON object of at most 64 MiB, sent before the image. A CVE it marks `not_affected` or `resolved` counts as unreachable. Not with `scan-id` |
 | `cli-version` | no | `v1.0.0` | [Analyzer CLI](https://github.com/exein-io/homebrew-tools) release to run. v2 of this action needs CLI v1 |
 | `timeout` | no | `5h30m` | How long the step waits for the scan, counted from its start, such as `5h30m`, `90m` or `45s`. Read by the gate, and by `gate: status`, which waits 20m at most. `gate: false` doesn't wait. Keep it under the job's `timeout-minutes`, so the step can report the scan id |

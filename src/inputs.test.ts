@@ -286,6 +286,20 @@ describe('parseInputs', () => {
         /build-vex goes with the upload of an image, not with scan-id/,
       );
     });
+
+    it('refuses a file path with scan-id, which has nothing to upload', () => {
+      assert.throws(
+        () => parseInputs(inputs({ ...CONNECTION, gate: 'true', 'scan-id': 's', 'file-path': 'image.tar' })),
+        /file-path goes with the upload of an image, not with scan-id/,
+      );
+    });
+
+    it('refuses a scan type with scan-id, which has nothing to upload', () => {
+      assert.throws(
+        () => parseInputs(inputs({ ...CONNECTION, gate: 'true', 'scan-id': 's', 'scan-type': 'linux' })),
+        /scan-type goes with the upload of an image, not with scan-id/,
+      );
+    });
   });
 
   describe('gate: upload, which v2 dropped', () => {

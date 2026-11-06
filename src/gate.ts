@@ -110,7 +110,8 @@ export async function runGate(inputs: GateInputs, deps: Deps): Promise<GateRepor
       scanId = inputs.target.scanId;
       deps.setOutput('scan-id', scanId);
     } else {
-      const made = await scanNew(deps.cli, env, inputs.target);
+      // The timeout counts the upload, so the runner stops an upload that stalls.
+      const made = await scanNew(deps.cli, env, inputs.target, inputs.timeoutSeconds);
       announce(made, deps);
       scanId = made.id;
       link = made.url;

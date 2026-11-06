@@ -205,9 +205,14 @@ function scanNewArgs(upload: Upload): string[] {
   ];
 }
 
-/** `analyzer scan new`: uploads the image, which starts a scan. */
-export async function scanNew(cli: CliRunner, env: CliEnv, upload: Upload): Promise<NewScan> {
-  const { json } = await run(cli, env, scanNewArgs(upload), [EXIT_DONE]);
+/** `analyzer scan new`: uploads the image, which starts a scan. The runner stops it after `timeoutSeconds`. */
+export async function scanNew(
+  cli: CliRunner,
+  env: CliEnv,
+  upload: Upload,
+  timeoutSeconds?: number,
+): Promise<NewScan> {
+  const { json } = await run(cli, env, scanNewArgs(upload), [EXIT_DONE], timeoutSeconds);
   const scan = json as NewScan;
   if (typeof scan.id !== 'string') {
     throw new CliError(EXIT_DONE, `analyzer scan new printed no scan id: ${JSON.stringify(json)}`);

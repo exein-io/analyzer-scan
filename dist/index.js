@@ -31535,8 +31535,10 @@ function parseInputs(getInput) {
         if (getInput('object-id') || getInput('object-key') || getInput('object-name')) {
             throw new Error('Set object-id or object-key (with object-name) to upload an image, or scan-id to gate a scan made earlier, not both');
         }
-        if (getInput('build-vex')) {
-            throw new Error('build-vex goes with the upload of an image, not with scan-id');
+        for (const name of ['build-vex', 'file-path', 'scan-type']) {
+            if (getInput(name)) {
+                throw new Error(`${name} goes with the upload of an image, not with scan-id`);
+            }
         }
         return { ...gate, target: { scanId } };
     }
@@ -31647,9 +31649,9 @@ function scanNewArgs(upload) {
         ...(upload.buildVex ? ['--vex', external_path_namespaceObject.resolve(upload.buildVex)] : []),
     ];
 }
-/** `analyzer scan new`: uploads the image, which starts a scan. */
-async function scanNew(cli, env, upload) {
-    const { json } = await run(cli, env, scanNewArgs(upload), [EXIT_DONE]);
+/** `analyzer scan new`: uploads the image, which starts a scan. The runner stops it after `timeoutSeconds`. */
+async function scanNew(cli, env, upload, timeoutSeconds) {
+    const { json } = await run(cli, env, scanNewArgs(upload), [EXIT_DONE], timeoutSeconds);
     const scan = json;
     if (typeof scan.id !== 'string') {
         throw new CliError(EXIT_DONE, `analyzer scan new printed no scan id: ${JSON.stringify(json)}`);
@@ -31827,7 +31829,8 @@ async function runGate(inputs, deps) {
             deps.setOutput('scan-id', scanId);
         }
         else {
-            const made = await scanNew(deps.cli, env, inputs.target);
+            // The timeout counts the upload, so the runner stops an upload that stalls.
+            const made = await scanNew(deps.cli, env, inputs.target, inputs.timeoutSeconds);
             announce(made, deps);
             scanId = made.id;
             link = made.url;
