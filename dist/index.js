@@ -31438,7 +31438,14 @@ const REMOVED_DOWNLOAD_INPUTS = ['download-report', 'download-sbom'];
 const REMOVED_DOWNLOADS_MESSAGE = "download-report and download-sbom were removed in v2: use gate: 'true' with fail-on: none, " +
     'which waits for the scan and downloads the SBOM, VEX and report without failing on CVEs';
 /** The inputs of an upload, which `gate: status` refuses. */
-const UPLOAD_INPUTS = ['object-id', 'object-key', 'object-name', 'file-path', 'build-vex'];
+const UPLOAD_INPUTS = [
+    'object-id',
+    'object-key',
+    'object-name',
+    'scan-type',
+    'file-path',
+    'build-vex',
+];
 /** `5h30m`, `90m`, `45s`: hours, minutes and seconds, in that order, each optional. In seconds. */
 function parseDuration(value) {
     const match = /^(?:(\d+)h)?(?:(\d+)m)?(?:(\d+)s)?$/.exec(value.trim());

@@ -372,15 +372,11 @@ describe('parseInputs', () => {
       );
     });
 
-    it('does not read scan-type', () => {
-      assert.equal(parseInputs(inputs({ ...STATUS, 'scan-type': 'rtos' })).mode, 'status');
-    });
-
     it('does not read fail-on', () => {
       assert.equal(parseInputs(inputs({ ...STATUS, 'fail-on': 'off' })).mode, 'status');
     });
 
-    for (const name of ['object-id', 'object-key', 'object-name', 'file-path', 'build-vex']) {
+    for (const name of ['object-id', 'object-key', 'object-name', 'scan-type', 'file-path', 'build-vex']) {
       it(`refuses ${name}`, () => {
         assert.throws(
           () => parseInputs(inputs({ ...STATUS, [name]: 'x' })),

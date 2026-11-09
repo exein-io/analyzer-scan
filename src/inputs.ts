@@ -83,7 +83,14 @@ export interface StatusInputs extends Common {
 export type Inputs = ScanInputs | GateInputs | StatusInputs;
 
 /** The inputs of an upload, which `gate: status` refuses. */
-const UPLOAD_INPUTS = ['object-id', 'object-key', 'object-name', 'file-path', 'build-vex'] as const;
+const UPLOAD_INPUTS = [
+  'object-id',
+  'object-key',
+  'object-name',
+  'scan-type',
+  'file-path',
+  'build-vex',
+] as const;
 
 /** Reads an action input, as `core.getInput` does. */
 export type GetInput = (name: string, options?: { required?: boolean }) => string;
