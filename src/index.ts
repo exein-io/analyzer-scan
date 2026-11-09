@@ -1,7 +1,7 @@
 import * as core from '@actions/core';
 import { spawnCli } from './analyzer.js';
 import { installAnalyzerCli } from './cli.js';
-import { runGate, runStatus, runUpload, type Deps } from './gate.js';
+import { runMode, type Deps } from './gate.js';
 import { parseInputs } from './inputs.js';
 
 async function main() {
@@ -21,23 +21,10 @@ async function main() {
       },
       outDir: process.cwd(),
       now: Date.now,
+      setFailed: core.setFailed,
     };
 
-    switch (inputs.mode) {
-      case 'scan':
-        await runUpload(inputs, deps);
-        break;
-      case 'status':
-        await runStatus(inputs, deps);
-        break;
-      case 'gate': {
-        const report = await runGate(inputs, deps);
-        if (!report.passed) {
-          core.setFailed(report.failures.join('\n') || `The gate failed for scan ${report['scan-id']}`);
-        }
-        break;
-      }
-    }
+    await runMode(inputs, deps);
   } catch (error) {
     core.setFailed(error instanceof Error ? error.message : String(error));
   }

@@ -14,6 +14,7 @@ import {
   formatSeconds,
   type FailOn,
   type GateInputs,
+  type Inputs,
   type ScanInputs,
   type Severity,
   type StatusInputs,
@@ -34,6 +35,8 @@ export interface Deps {
   outDir: string;
   /** Milliseconds, as `Date.now`. */
   now(): number;
+  /** Fails the step, as `core.setFailed`. */
+  setFailed(message: string): void;
 }
 
 function errorMessage(err: unknown): string {
@@ -94,6 +97,23 @@ export async function runUpload(inputs: ScanInputs, deps: Deps): Promise<NewScan
   announce(scan, deps);
   await deps.writeSummary(renderUploadSummary(inputs.upload, scan));
   return scan;
+}
+
+/** Runs the mode the inputs ask for. A gate that does not pass fails the step. */
+export async function runMode(inputs: Inputs, deps: Deps): Promise<NewScan | GateReport | ScanStatus> {
+  switch (inputs.mode) {
+    case 'scan':
+      return runUpload(inputs, deps);
+    case 'status':
+      return runStatus(inputs, deps);
+    case 'gate': {
+      const report = await runGate(inputs, deps);
+      if (!report.passed) {
+        deps.setFailed(report.failures.join('\n') || `The gate failed for scan ${report['scan-id']}`);
+      }
+      return report;
+    }
+  }
 }
 
 /**

@@ -2,15 +2,7 @@ import assert from 'node:assert/strict';
 import * as path from 'path';
 import { before, describe, it } from 'node:test';
 import type { CliCall, CliRunner, CveCounts, CveTiers, GateReport, NewScan, ScanStatus } from './analyzer.js';
-import {
-  renderErrorSummary,
-  renderStatusSummary,
-  renderSummary,
-  runGate,
-  runStatus,
-  runUpload,
-  type Deps,
-} from './gate.js';
+import { renderErrorSummary, renderStatusSummary, renderSummary, runMode, type Deps } from './gate.js';
 import type { GateInputs, Inputs, ScanInputs, StatusInputs, Upload } from './inputs.js';
 
 const OBJECT_ID = '11111111-1111-4111-8111-111111111111';
@@ -136,7 +128,9 @@ interface Run {
   summaries: string[];
   infos: string[];
   warnings: string[];
-  result?: GateReport | NewScan | ScanStatus | void;
+  /** The messages the step failed with. */
+  failed: string[];
+  result?: GateReport | NewScan | ScanStatus;
   error?: Error;
 }
 
@@ -146,7 +140,15 @@ async function run(
   replies: { new?: Reply; gate?: Reply; status?: Reply } = {},
 ): Promise<Run> {
   let clock = 0;
-  const r: Run = { calls: [], outputsAtCall: [], outputs: new Map(), summaries: [], infos: [], warnings: [] };
+  const r: Run = {
+    calls: [],
+    outputsAtCall: [],
+    outputs: new Map(),
+    summaries: [],
+    infos: [],
+    warnings: [],
+    failed: [],
+  };
   const cli: CliRunner = async (call) => {
     r.calls.push(call);
     r.outputsAtCall.push(Object.fromEntries(r.outputs));
@@ -166,19 +168,10 @@ async function run(
     writeSummary: async (md) => void r.summaries.push(md),
     outDir: OUT_DIR,
     now: () => clock,
+    setFailed: (message) => r.failed.push(message),
   };
   try {
-    switch (inputs.mode) {
-      case 'gate':
-        r.result = await runGate(inputs, deps);
-        break;
-      case 'scan':
-        r.result = await runUpload(inputs, deps);
-        break;
-      case 'status':
-        r.result = await runStatus(inputs, deps);
-        break;
-    }
+    r.result = await runMode(inputs, deps);
   } catch (err) {
     r.error = err as Error;
   }
@@ -199,6 +192,10 @@ describe('gate: true', () => {
 
     it('runs scan new, then scan gate', () => {
       assert.deepEqual(commands(r), ['scan new', 'scan gate']);
+    });
+
+    it('does not fail the step', () => {
+      assert.deepEqual(r.failed, []);
     });
 
     it('uploads the image and the build VEX to the object with the key', () => {
@@ -329,8 +326,12 @@ describe('gate: true', () => {
       assert.equal(gateResult(r)?.passed, false);
     });
 
-    it('returns the failures, to fail the step with', () => {
+    it('returns the failures', () => {
       assert.deepEqual(gateResult(r)?.failures, [failure]);
+    });
+
+    it('fails the step with the failures', () => {
+      assert.deepEqual(r.failed, [failure]);
     });
 
     it('outputs the blocking count', () => {
@@ -368,6 +369,10 @@ describe('gate: true', () => {
     it('does not pass: the exit code decides', () => {
       assert.equal(gateResult(r)?.passed, false);
     });
+
+    it('fails the step, naming the scan when the report lists no failure', () => {
+      assert.deepEqual(r.failed, [`The gate failed for scan ${SCAN_ID}`]);
+    });
   });
 
   describe('exit 0 at fail-on none, with reachable critical CVEs', () => {
@@ -385,6 +390,10 @@ describe('gate: true', () => {
 
     it('passes', () => {
       assert.equal(gateResult(r)?.passed, true);
+    });
+
+    it('does not fail the step', () => {
+      assert.deepEqual(r.failed, []);
     });
 
     it('outputs no blocking CVEs', () => {
@@ -772,6 +781,7 @@ describe('gate: status', () => {
 
     it('does not fail: the gate decides', () => {
       assert.equal(r.error, undefined);
+      assert.deepEqual(r.failed, []);
     });
 
     it('outputs its status', () => {

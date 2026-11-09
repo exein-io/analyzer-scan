@@ -31814,6 +31814,22 @@ async function runUpload(inputs, deps) {
     await deps.writeSummary(renderUploadSummary(inputs.upload, scan));
     return scan;
 }
+/** Runs the mode the inputs ask for. A gate that does not pass fails the step. */
+async function runMode(inputs, deps) {
+    switch (inputs.mode) {
+        case 'scan':
+            return runUpload(inputs, deps);
+        case 'status':
+            return runStatus(inputs, deps);
+        case 'gate': {
+            const report = await runGate(inputs, deps);
+            if (!report.passed) {
+                deps.setFailed(report.failures.join('\n') || `The gate failed for scan ${report['scan-id']}`);
+            }
+            return report;
+        }
+    }
+}
 /**
  * `gate: true`: uploads the image (or takes a scan made earlier), then runs `analyzer scan gate`, which waits
  * until the scan finishes and its CVE classification settles, downloads the SBOM, VEX and report, and decides.
@@ -31979,22 +31995,9 @@ async function main() {
             },
             outDir: process.cwd(),
             now: Date.now,
+            setFailed: setFailed,
         };
-        switch (inputs.mode) {
-            case 'scan':
-                await runUpload(inputs, deps);
-                break;
-            case 'status':
-                await runStatus(inputs, deps);
-                break;
-            case 'gate': {
-                const report = await runGate(inputs, deps);
-                if (!report.passed) {
-                    setFailed(report.failures.join('\n') || `The gate failed for scan ${report['scan-id']}`);
-                }
-                break;
-            }
-        }
+        await runMode(inputs, deps);
     }
     catch (error) {
         setFailed(error instanceof Error ? error.message : String(error));

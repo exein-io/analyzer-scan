@@ -197,6 +197,7 @@ describe('the gate, through a real process', () => {
       writeSummary: async () => {},
       outDir,
       now: Date.now,
+      setFailed: () => {},
     };
     const inputs: GateInputs = {
       apiKey: ENV.ANALYZER_API_KEY,
