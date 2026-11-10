@@ -52,7 +52,7 @@ yarn install --immutable
 Run the full local pipeline:
 
 ```bash
-yarn all   # runs lint + prettier + build
+yarn all   # runs lint + prettier + typecheck + test + build
 ```
 
 Then **rebuild and commit `dist/`**. CI runs a "Check dist/ is up-to-date" step that fails
