@@ -14,7 +14,7 @@ export const FAIL_ON_VALUES = [...FAIL_ON_SEVERITIES, 'none'] as const;
 export type FailOn = (typeof FAIL_ON_VALUES)[number];
 
 /** The Analyzer CLI release this major of the action is built for. */
-export const DEFAULT_CLI_VERSION = 'v1.0.0';
+export const DEFAULT_CLI_VERSION = 'v1.1.0';
 
 /** What the `gate` input asks for: a scan, the release gate, or a scan's status. */
 export type Mode = 'scan' | 'gate' | 'status';

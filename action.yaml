@@ -42,9 +42,9 @@ inputs:
 
   # CLI
   cli-version:
-    description: 'Analyzer CLI release to run. Defaults to v1.0.0, the release this major of the action is built for'
+    description: 'Analyzer CLI release to run. Defaults to v1.1.0, the release this major of the action is built for'
     required: false
-    default: 'v1.0.0'
+    default: 'v1.1.0'
 
   # Release gate
   gate:
