@@ -17,10 +17,10 @@ The action is a thin wrapper around the [Analyzer CLI](https://github.com/exein-
 
 ## Upgrading from v1
 
-v2 runs the Analyzer CLI v1.0.0, which talks to the Analyzer v2 API only. That brings these breaking changes:
+v2 runs the Analyzer CLI v1, which talks to the Analyzer v2 API only. That brings these breaking changes:
 
 - `scan-type` takes `docker` or `linux`. ESP-IDF (`idf`) and SBOM (`sbom`) scans stay on `analyzer-scan@v1`.
-- `cli-version` defaults to `v1.0.0`, the CLI release v2 is built for, instead of `latest`. A 0.x CLI does not work with v2.
+- `cli-version` defaults to a CLI v1 release instead of `latest`: `v1.0.0` in v2.0.0, `v1.1.0` since. A 0.x CLI does not work with v2.
 - The API picks the analyses of a scan by its type. v1 passed a fixed list per type.
 - `download-report` and `download-sbom` removed: use `gate: 'true'` with `fail-on: none`, which waits for the scan and [downloads the SBOM, VEX and report](#download-the-report-sbom-and-vex) without failing on CVEs. A step that still sets either one to `true` fails at once with that hint.
 
@@ -427,7 +427,7 @@ The SBOM, VEX and report land in the working directory as `<scan-id>-sbom.json`,
 | `scan-type` | yes, unless `scan-id` | — | `docker` or `linux`. Not with `scan-id` |
 | `file-path` | yes, unless `scan-id` | — | Path to the image. Not with `scan-id` |
 | `build-vex` | no | — | Path to the [build's CycloneDX VEX](#send-the-builds-vex), one JSON object of at most 64 MiB, sent before the image. A CVE it marks `not_affected` or `resolved` counts as unreachable. Not with `scan-id` |
-| `cli-version` | no | `v1.0.0` | [Analyzer CLI](https://github.com/exein-io/homebrew-tools) release to run. v2 of this action needs CLI v1 |
+| `cli-version` | no | `v1.1.0` | [Analyzer CLI](https://github.com/exein-io/homebrew-tools) release to run. v2 of this action needs CLI v1 |
 | `timeout` | no | `5h30m` | How long the step waits for the scan, counted from its start, such as `5h30m`, `90m` or `45s`. Read by the gate, and by `gate: status`, which waits 20m at most. `gate: false` doesn't wait. Keep it under the job's `timeout-minutes`, so the step can report the scan id |
 
 Release gate inputs:
