@@ -31789,7 +31789,7 @@ const FAIL_ON_SEVERITIES = ['critical', 'high', 'medium', 'low'];
 /** The values of `fail-on`: the lowest severity that blocks, or `none`, which only reports. */
 const FAIL_ON_VALUES = [...FAIL_ON_SEVERITIES, 'none'];
 /** The Analyzer CLI release this major of the action is built for. */
-const DEFAULT_CLI_VERSION = 'v1.0.0';
+const DEFAULT_CLI_VERSION = 'v1.1.0';
 function parseMode(value) {
     switch (value.trim().toLowerCase()) {
         case '':

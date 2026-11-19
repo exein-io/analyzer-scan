@@ -89,7 +89,7 @@ describe('parseMode', () => {
 describe('parseInputs', () => {
   describe('every mode', () => {
     it('defaults the CLI to the release this action is built for', () => {
-      assert.equal(parseInputs(inputs(SCAN)).cliVersion, 'v1.0.0');
+      assert.equal(parseInputs(inputs(SCAN)).cliVersion, 'v1.1.0');
     });
 
     it('takes a pinned CLI', () => {
@@ -142,7 +142,7 @@ describe('parseInputs', () => {
       assert.deepEqual(parseInputs(inputs({ ...SCAN, 'build-vex': 'build.vex.json' })), {
         apiKey: 'k',
         apiUrl: 'https://analyzer.example.com/api',
-        cliVersion: 'v1.0.0',
+        cliVersion: 'v1.1.0',
         mode: 'scan',
         upload: { object: { id: 'o' }, scanType: 'linux', filePath: 'image.tar', buildVex: 'build.vex.json' },
       });
@@ -204,7 +204,7 @@ describe('parseInputs', () => {
       assert.deepEqual(parseInputs(inputs(GATE)), {
         apiKey: 'k',
         apiUrl: 'https://analyzer.example.com/api',
-        cliVersion: 'v1.0.0',
+        cliVersion: 'v1.1.0',
         timeoutSeconds: 19_800,
         mode: 'gate',
         failOn: 'critical',
@@ -353,7 +353,7 @@ describe('parseInputs', () => {
       assert.deepEqual(parseInputs(inputs(STATUS)), {
         apiKey: 'k',
         apiUrl: 'https://analyzer.example.com/api',
-        cliVersion: 'v1.0.0',
+        cliVersion: 'v1.1.0',
         timeoutSeconds: 19_800,
         mode: 'status',
         scanId: 's',
