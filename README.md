@@ -444,7 +444,7 @@ A CVE blocks when it is at `fail-on` or above and reachable or unresolved. Reach
 
 #### Gate on fix-now
 
-With `fail-on: fix-now`, the gate counts the scan's fix-now CVEs instead of a severity: the reachable ones that are also dangerous, in CISA KEV or with a high EPSS score. Any fix-now CVE fails the gate, whatever its severity. Severities are not gated, so the table shows `not gated` in each row, and the summary and the pull request comment give the fix-now count with its split per severity.
+With `fail-on: fix-now`, the gate counts the scan's fix-now CVEs instead of a severity: the reachable ones that are also dangerous, in CISA KEV or with a high EPSS score. Any fix-now CVE fails the gate, whatever its severity. Severities are not gated, so the table shows `not gated` in each row, and the summary and the pull request comment give the fix-now count, with its split per severity when the server sends one.
 
 ```yaml
 - uses: exein-io/analyzer-scan@v2
@@ -458,7 +458,7 @@ With `fail-on: fix-now`, the gate counts the scan's fix-now CVEs instead of a se
     cli-version: <a CLI release with fix-now> # the default v1.1.0 doesn't take fix-now
 ```
 
-`fix-now` needs an Analyzer CLI release that has the fix-now gate, which is newer than the default `cli-version` (`v1.1.0`) and still in progress, and a server that sends the fix-now count. An older CLI refuses `--fail-on fix-now`. On a server that sends no fix-now count, the CLI can't decide. Either way, the gate exits 2 and the step fails with the CLI's error as a gate with no result, not as a failed gate: no `scan-status` is set. Until both are in place, gate on a severity, such as `fail-on: critical`.
+`fix-now` needs an Analyzer CLI release that has the fix-now gate, which is newer than the default `cli-version` (`v1.1.0`) and still in progress, and a server that sends the fix-now count. An older CLI refuses `--fail-on fix-now`. On a server that sends no fix-now count, the CLI waits for the scan to finish and its classification to settle, which can take hours, and then can't decide. Either way, the gate exits 2 and the step fails with the CLI's error as a gate with no result, not as a failed gate: no `scan-status` is set. A scan that ended `error` or `canceled` is the exception: it fails the gate on its status alone, with `scan-status` set and `blocking` empty. Until both are in place, gate on a severity, such as `fail-on: critical`.
 
 Docker images are not classified for reachability yet. Until they are, each CVE of a Docker scan counts as unresolved, so every one at `fail-on` or above blocks.
 
@@ -514,7 +514,7 @@ The gate always downloads the SBOM, VEX and report.
 | `object-id` | UUID of the object |
 | `vex-path` | Gate: path to the downloaded VEX JSON |
 | `cve-counts` | Gate: the CVE counts, as JSON: `all`, `reachable`, `unreachable` and `unresolved` per severity, with `classification` and `settled` |
-| `blocking` | Gate: number of blocking CVEs (with `fail-on: fix-now`, the fix-now CVEs), empty when the scan has no counts. The step's outcome is the decision: a failed scan or a missing SBOM or VEX fails the gate with `blocking` at `0` |
+| `blocking` | Gate: number of blocking CVEs (with `fail-on: fix-now`, the fix-now CVEs), empty when the scan has no counts, or with `fail-on: fix-now` when the server sends no fix-now count. The step's outcome is the decision: a failed scan or a missing SBOM or VEX fails the gate with `blocking` at `0` |
 | `scan-status` | Gate and `gate: status`: the scan's status, `pending`, `in-progress`, `success`, `error` or `canceled` |
 | `finished` | `gate: status`: `'true'` once the scan ended in `success`, `error` or `canceled`, `'false'` while it runs |
 

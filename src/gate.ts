@@ -231,7 +231,7 @@ export function renderSummary(report: GateReport, object?: string): string {
   if (failOn === 'none') {
     lines.push("fail-on `none`: report only, CVEs don't fail the step.", '');
   } else if (report.passed && failOn === 'fix-now') {
-    lines.push('fail-on `fix-now`: no CVE is reachable and dangerous.', '');
+    lines.push('No fix-now CVE blocks at fail-on `fix-now`.', '');
   } else if (report.passed) {
     lines.push(`No CVEs at fail-on \`${failOn}\` or above are reachable or unresolved.`, '');
   }

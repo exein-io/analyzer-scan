@@ -89,7 +89,7 @@ outputs:
   cve-counts:
     description: 'Gate: the CVE counts per severity, as JSON'
   blocking:
-    description: 'Gate: number of reachable + unresolved CVEs at fail-on or above, or of fix-now CVEs with fail-on fix-now; empty when the scan has no counts'
+    description: 'Gate: number of reachable + unresolved CVEs at fail-on or above, or of fix-now CVEs with fail-on fix-now; empty when the scan has no counts, or with fail-on fix-now when the server sends no fix-now count'
   scan-status:
     description: 'Gate and gate status: the status of the scan: pending, in-progress, success, error or canceled'
   finished:

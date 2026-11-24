@@ -1116,7 +1116,7 @@ describe('renderSummary', () => {
 
   it('says a fix-now gate passed with no fix-now CVE', () => {
     const md = renderSummary(report({ 'fail-on': 'fix-now', 'fix-now': 0 }));
-    assert.ok(md.includes('\nfail-on `fix-now`: no CVE is reachable and dangerous.\n'));
+    assert.ok(md.includes('\nNo fix-now CVE blocks at fail-on `fix-now`.\n'));
     assert.ok(md.includes('| Critical | 0 | 0 | 0 | 0 | not gated |'));
   });
 
