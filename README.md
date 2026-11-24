@@ -409,6 +409,11 @@ permissions:
   contents: read
   pull-requests: write
 
+# A new push cancels the gate of the commit before it.
+concurrency:
+  group: analyzer-gate-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
 jobs:
   scan:
     runs-on: ubuntu-latest
@@ -427,7 +432,9 @@ jobs:
           fail-on: high
 ```
 
-A gate with no result, such as a timeout, comments its error, so the comment never shows an earlier run's decision as current. With `scan-id` and no result, the gate doesn't know the scan's object yet and doesn't comment.
+A gate with no result, such as a timeout, comments its error, so the comment doesn't keep showing the decision of an earlier run. Before it comments, the gate checks that the pull request is still at the commit it gated, and leaves the comment to the newer run when it has moved on. With `scan-id` and no result, the gate doesn't know the scan's object yet and doesn't comment. The `concurrency` group above keeps two runs of one pull request from racing for the comment.
+
+The gate only updates a comment with its marker that a bot or someone with write access wrote, so a contributor who pastes the marker can't take the comment over.
 
 A comment that fails only warns, and never fails the step: a token without `pull-requests: write`, or the read-only token of a pull request from a fork. Only the gate comments. `gate: false`, `gate: status`, and events other than a pull request don't. Set `pr-comment: 'false'` to turn the comment off, and `github-token` to comment with another token. The action also reads `pull_request_target`, but don't run a scan on it: that event runs with the base repository's secrets on code from the pull request.
 

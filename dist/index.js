@@ -31926,15 +31926,15 @@ function parseInputs(getInput) {
 }
 /** `pr-comment`: whether the gate comments on the pull request it runs for. On by default. */
 function parsePrComment(getInput) {
-    const value = getInput('pr-comment').trim().toLowerCase();
-    switch (value) {
+    const raw = getInput('pr-comment').trim();
+    switch (raw.toLowerCase()) {
         case '':
         case 'true':
             return true;
         case 'false':
             return false;
         default:
-            throw new Error(`Invalid pr-comment "${value}". Must be true or false`);
+            throw new Error(`Invalid pr-comment "${raw}". Must be true or false`);
     }
 }
 
@@ -31964,6 +31964,10 @@ class CliError extends Error {
 function cliEnv(apiKey, apiUrl) {
     return { ANALYZER_API_KEY: apiKey, ANALYZER_URL: apiUrl.replace(/\/+$/, '') };
 }
+/** The environment without the step's inputs, which the runner passes as `INPUT_*` variables. */
+function withoutInputs(env) {
+    return Object.fromEntries(Object.entries(env).filter(([name]) => !name.startsWith('INPUT_')));
+}
 /**
  * Runs the CLI at `analyzerPath`. Its stderr is its progress, passed to `log` line by line as it comes, so
  * a wait of hours shows in the job log. Its stdout is kept for the JSON document it ends with.
@@ -31971,7 +31975,8 @@ function cliEnv(apiKey, apiUrl) {
 function spawnCli(analyzerPath, log) {
     return ({ args, env, timeoutSeconds }) => new Promise((resolve, reject) => {
         const child = (0,external_child_process_namespaceObject.spawn)(analyzerPath, args, {
-            env: { ...process.env, ...env },
+            // Without the step's inputs (`INPUT_*`), so the CLI never sees the github-token.
+            env: { ...withoutInputs(process.env), ...env },
             stdio: ['ignore', 'pipe', 'pipe'],
         });
         let stopped;
@@ -32161,10 +32166,20 @@ function installAnalyzerCli(version, apiKey, apiUrl, info) {
 const PR_EVENTS = ['pull_request', 'pull_request_target'];
 /** GitHub refuses a comment body longer than this. */
 const MAX_COMMENT_LENGTH = 65_536;
+/** The authors whose comments with the marker the action takes over: no outside contributor. */
+const TRUSTED_ASSOCIATIONS = ['OWNER', 'MEMBER', 'COLLABORATOR'];
+/**
+ * A comment the action may update: one by a bot, as with the workflow token, or by someone with write access,
+ * as with a personal token. Anyone can paste the marker, so a comment by anyone else is never adopted.
+ */
+function isOwnComment(c) {
+    return c.user?.type === 'Bot' || TRUSTED_ASSOCIATIONS.includes(c.author_association ?? '');
+}
 /** The hidden line that tells this comment from the others: one per object, so each scan step keeps its own. */
 function commentMarker(key) {
-    // An HTML comment ends at `--`, so the key keeps safe characters and single hyphens only.
-    const safe = key.replace(/[^A-Za-z0-9._-]/g, '_').replace(/-{2,}/g, '-');
+    // An HTML comment ends at `--`, so the key is percent-encoded, a hyphen before another hyphen too. Encoding
+    // keeps two keys apart, where replacing their characters would give both one marker and one comment.
+    const safe = encodeURIComponent(key).replace(/-(?=-)/g, '%2D');
     return `<!-- exein-analyzer-scan:${safe} -->`;
 }
 /** The number of the pull request of the event, or undefined outside a pull request event. */
@@ -32184,11 +32199,20 @@ function commentBody(key, body, footer) {
     const text = body.length > room ? body.slice(0, room - cut.length) + cut : body;
     return head + text + tail;
 }
-/** Updates the comment that carries the marker of `key`, or makes it. */
-async function upsertComment(api, issueNumber, key, body) {
+/**
+ * Updates the comment that carries the marker of `key`, or makes it. With `sha`, the commit the run gated,
+ * skips when the pull request has moved on, so a run that ends late does not cover a newer run's result.
+ */
+async function upsertComment(api, issueNumber, key, body, sha) {
+    if (sha) {
+        const head = await api.headSha(issueNumber);
+        if (head && head !== sha) {
+            return 'skipped';
+        }
+    }
     const marker = commentMarker(key);
     const comments = await api.listComments(issueNumber);
-    const previous = comments.find((c) => c.body?.startsWith(marker));
+    const previous = comments.find((c) => c.body?.startsWith(marker) && isOwnComment(c));
     if (previous) {
         await api.updateComment(previous.id, body);
         return 'updated';
@@ -32198,9 +32222,13 @@ async function upsertComment(api, issueNumber, key, body) {
 }
 /** The longest list of comments read: 100 pages of 100. */
 const MAX_PAGES = 100;
+/** How long one request to GitHub may take, so an API that hangs does not hold the step. */
+const REQUEST_TIMEOUT_MS = 30_000;
 /** GitHub's REST API for issue comments, by `fetch`, so the action needs no client library. */
 function restCommentApi({ apiUrl, repository, token, fetch: doFetch = fetch, }) {
-    const base = `${apiUrl.replace(/\/+$/, '')}/repos/${repository}/issues`;
+    const repo = `${apiUrl.replace(/\/+$/, '')}/repos/${repository}`;
+    const base = `${repo}/issues`;
+    const pulls = `${repo}/pulls`;
     const request = async (method, url, body) => {
         const res = await doFetch(url, {
             method,
@@ -32212,6 +32240,7 @@ function restCommentApi({ apiUrl, repository, token, fetch: doFetch = fetch, }) 
                 ...(body === undefined ? {} : { 'Content-Type': 'application/json' }),
             },
             ...(body === undefined ? {} : { body: JSON.stringify(body) }),
+            signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
         });
         if (!res.ok) {
             const text = (await res.text().catch(() => '')).slice(0, 300);
@@ -32233,6 +32262,10 @@ function restCommentApi({ apiUrl, repository, token, fetch: doFetch = fetch, }) 
         },
         async createComment(issueNumber, body) {
             await request('POST', `${base}/${issueNumber}/comments`, { body });
+        },
+        async headSha(pullNumber) {
+            const pr = (await request('GET', `${pulls}/${pullNumber}`));
+            return typeof pr.head?.sha === 'string' ? pr.head.sha : undefined;
         },
         async updateComment(commentId, body) {
             await request('PATCH', `${base}/comments/${commentId}`, { body });
@@ -32545,8 +32578,10 @@ function prCommenter(enabled) {
     const footer = `<sub>From ${run}${sha ? ` on ${sha.slice(0, 7)}` : ''}. Updated on each run.</sub>`;
     return async (key, body) => {
         try {
-            const done = await upsertComment(api, prNumber, key, commentBody(key, body, footer));
-            info(`Comment on pull request #${prNumber} ${done}`);
+            const done = await upsertComment(api, prNumber, key, commentBody(key, body, footer), sha);
+            info(done === 'skipped'
+                ? `Pull request #${prNumber} moved on from ${sha}, so the gate leaves its comment to the newer run`
+                : `Comment on pull request #${prNumber} ${done}`);
         }
         catch (err) {
             warning(commentWarning(err));
@@ -32557,7 +32592,8 @@ async function main() {
     try {
         const inputs = parseInputs(getInput);
         setSecret(inputs.apiKey);
-        const prComment = prCommenter(parsePrComment(getInput));
+        // Only the gate comments, so only the gate reads pr-comment and github-token.
+        const prComment = inputs.mode === 'gate' ? prCommenter(parsePrComment(getInput)) : undefined;
         const analyzerPath = installAnalyzerCli(inputs.cliVersion, inputs.apiKey, inputs.apiUrl, info);
         const deps = {
             cli: spawnCli(analyzerPath, info),

@@ -14,7 +14,7 @@ import {
 } from './comment.js';
 
 /** An Octokit stand-in that keeps the comments of one pull request, and records the calls. */
-function fakeApi(comments: IssueComment[] = []) {
+function fakeApi(comments: IssueComment[] = [], head = 'abc123') {
   const calls: string[] = [];
   let nextId = 1000;
   const api: CommentApi = {
@@ -24,7 +24,11 @@ function fakeApi(comments: IssueComment[] = []) {
     },
     async createComment(issue, body) {
       calls.push(`create ${issue}`);
-      comments.push({ id: nextId++, body });
+      comments.push({ id: nextId++, body, user: { type: 'Bot' } });
+    },
+    async headSha(pr) {
+      calls.push(`head ${pr}`);
+      return head;
     },
     async updateComment(id, body) {
       calls.push(`update ${id}`);
@@ -42,7 +46,13 @@ describe('commentMarker', () => {
   });
 
   it('keeps a key from closing the HTML comment', () => {
-    assert.equal(commentMarker('a-->b c'), '<!-- exein-analyzer-scan:a-_b_c -->');
+    assert.equal(commentMarker('a-->b c'), '<!-- exein-analyzer-scan:a%2D-%3Eb%20c -->');
+    assert.ok(!commentMarker('a---b').slice(4, -3).includes('--'));
+  });
+
+  it('gives two keys two markers', () => {
+    assert.notEqual(commentMarker('a b'), commentMarker('a_b'));
+    assert.notEqual(commentMarker('a--b'), commentMarker('a-b'));
   });
 });
 
@@ -96,7 +106,7 @@ describe('upsertComment', () => {
   it('updates the comment of the object on the next run', async () => {
     const { api, calls, comments } = fakeApi([
       { id: 1, body: 'LGTM' },
-      { id: 2, body: commentBody('gw', 'first') },
+      { id: 2, body: commentBody('gw', 'first'), user: { type: 'Bot' } },
     ]);
     const body = commentBody('gw', 'second');
     assert.equal(await upsertComment(api, 7, 'gw', body), 'updated');
@@ -106,7 +116,7 @@ describe('upsertComment', () => {
   });
 
   it('keeps one comment per object, when a workflow gates several', async () => {
-    const { api, calls } = fakeApi([{ id: 2, body: commentBody('gw', 'gateway') }]);
+    const { api, calls } = fakeApi([{ id: 2, body: commentBody('gw', 'gateway'), user: { type: 'Bot' } }]);
     assert.equal(await upsertComment(api, 7, 'sensor', commentBody('sensor', 'sensor')), 'created');
     assert.deepEqual(calls, ['list 7', 'create 7']);
   });
@@ -116,6 +126,33 @@ describe('upsertComment', () => {
     assert.equal(await upsertComment(api, 7, 'gw', commentBody('gw', 'x')), 'created');
   });
 
+  it('does not take over a comment with the marker by an outside contributor', async () => {
+    const { api, calls } = fakeApi([
+      { id: 4, body: commentBody('gw', 'passed'), user: { type: 'User' }, author_association: 'CONTRIBUTOR' },
+    ]);
+    assert.equal(await upsertComment(api, 7, 'gw', commentBody('gw', 'x')), 'created');
+    assert.deepEqual(calls, ['list 7', 'create 7']);
+  });
+
+  it('updates a comment made with the personal token of a member', async () => {
+    const { api } = fakeApi([
+      { id: 5, body: commentBody('gw', 'first'), user: { type: 'User' }, author_association: 'MEMBER' },
+    ]);
+    assert.equal(await upsertComment(api, 7, 'gw', commentBody('gw', 'x')), 'updated');
+  });
+
+  it('comments the commit the pull request is at', async () => {
+    const { api, calls } = fakeApi([], 'abc123');
+    assert.equal(await upsertComment(api, 7, 'gw', commentBody('gw', 'x'), 'abc123'), 'created');
+    assert.deepEqual(calls, ['head 7', 'list 7', 'create 7']);
+  });
+
+  it('skips a run of a commit the pull request moved on from', async () => {
+    const { api, calls } = fakeApi([], 'def456');
+    assert.equal(await upsertComment(api, 7, 'gw', commentBody('gw', 'x'), 'abc123'), 'skipped');
+    assert.deepEqual(calls, ['head 7']);
+  });
+
   it('passes on an error of the API', async () => {
     const api: CommentApi = {
       listComments: async () => {
@@ -123,6 +160,7 @@ describe('upsertComment', () => {
       },
       createComment: async () => {},
       updateComment: async () => {},
+      headSha: async () => undefined,
     };
     await assert.rejects(upsertComment(api, 7, 'gw', 'x'), GitHubApiError);
   });
@@ -209,6 +247,12 @@ describe('restCommentApi', () => {
         },
       ],
     );
+  });
+
+  it('reads the head commit of the pull request', async () => {
+    const { doFetch, requests } = fakeFetch(() => ({ status: 200, json: { head: { sha: 'abc123' } } }));
+    assert.equal(await restCommentApi({ ...options, fetch: doFetch }).headSha(5), 'abc123');
+    assert.equal(requests[0].url, 'https://api.github.com/repos/acme/fw/pulls/5');
   });
 
   it('throws the status of a refusal', async () => {

@@ -412,6 +412,6 @@ describe('parsePrComment', () => {
   });
 
   it('refuses anything else', () => {
-    assert.throws(() => parsePrComment(inputs({ 'pr-comment': 'no' })), /Invalid pr-comment "no"/);
+    assert.throws(() => parsePrComment(inputs({ 'pr-comment': 'No' })), /Invalid pr-comment "No"/);
   });
 });

@@ -220,14 +220,14 @@ export function parseInputs(getInput: GetInput): Inputs {
 
 /** `pr-comment`: whether the gate comments on the pull request it runs for. On by default. */
 export function parsePrComment(getInput: GetInput): boolean {
-  const value = getInput('pr-comment').trim().toLowerCase();
-  switch (value) {
+  const raw = getInput('pr-comment').trim();
+  switch (raw.toLowerCase()) {
     case '':
     case 'true':
       return true;
     case 'false':
       return false;
     default:
-      throw new Error(`Invalid pr-comment "${value}". Must be true or false`);
+      throw new Error(`Invalid pr-comment "${raw}". Must be true or false`);
   }
 }

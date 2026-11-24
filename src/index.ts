@@ -47,8 +47,12 @@ function prCommenter(enabled: boolean): Deps['prComment'] {
   const footer = `<sub>From ${run}${sha ? ` on ${sha.slice(0, 7)}` : ''}. Updated on each run.</sub>`;
   return async (key, body) => {
     try {
-      const done = await upsertComment(api, prNumber, key, commentBody(key, body, footer));
-      core.info(`Comment on pull request #${prNumber} ${done}`);
+      const done = await upsertComment(api, prNumber, key, commentBody(key, body, footer), sha);
+      core.info(
+        done === 'skipped'
+          ? `Pull request #${prNumber} moved on from ${sha}, so the gate leaves its comment to the newer run`
+          : `Comment on pull request #${prNumber} ${done}`,
+      );
     } catch (err) {
       core.warning(commentWarning(err));
     }
@@ -59,7 +63,8 @@ async function main() {
   try {
     const inputs = parseInputs(core.getInput);
     core.setSecret(inputs.apiKey);
-    const prComment = prCommenter(parsePrComment(core.getInput));
+    // Only the gate comments, so only the gate reads pr-comment and github-token.
+    const prComment = inputs.mode === 'gate' ? prCommenter(parsePrComment(core.getInput)) : undefined;
 
     const analyzerPath = installAnalyzerCli(inputs.cliVersion, inputs.apiKey, inputs.apiUrl, core.info);
     const deps: Deps = {

@@ -12,6 +12,20 @@ export const MAX_COMMENT_LENGTH = 65_536;
 export interface IssueComment {
   id: number;
   body?: string | null;
+  user?: { type?: string } | null;
+  /** How the author relates to the repository: `OWNER`, `MEMBER`, `COLLABORATOR`, `CONTRIBUTOR`, `NONE`, ... */
+  author_association?: string;
+}
+
+/** The authors whose comments with the marker the action takes over: no outside contributor. */
+const TRUSTED_ASSOCIATIONS = ['OWNER', 'MEMBER', 'COLLABORATOR'];
+
+/**
+ * A comment the action may update: one by a bot, as with the workflow token, or by someone with write access,
+ * as with a personal token. Anyone can paste the marker, so a comment by anyone else is never adopted.
+ */
+export function isOwnComment(c: IssueComment): boolean {
+  return c.user?.type === 'Bot' || TRUSTED_ASSOCIATIONS.includes(c.author_association ?? '');
 }
 
 /** The calls the comment needs, so tests replace GitHub's API. */
@@ -20,12 +34,15 @@ export interface CommentApi {
   listComments(issueNumber: number): Promise<IssueComment[]>;
   createComment(issueNumber: number, body: string): Promise<void>;
   updateComment(commentId: number, body: string): Promise<void>;
+  /** The commit the pull request is at now. */
+  headSha(pullNumber: number): Promise<string | undefined>;
 }
 
 /** The hidden line that tells this comment from the others: one per object, so each scan step keeps its own. */
 export function commentMarker(key: string): string {
-  // An HTML comment ends at `--`, so the key keeps safe characters and single hyphens only.
-  const safe = key.replace(/[^A-Za-z0-9._-]/g, '_').replace(/-{2,}/g, '-');
+  // An HTML comment ends at `--`, so the key is percent-encoded, a hyphen before another hyphen too. Encoding
+  // keeps two keys apart, where replacing their characters would give both one marker and one comment.
+  const safe = encodeURIComponent(key).replace(/-(?=-)/g, '%2D');
   return `<!-- exein-analyzer-scan:${safe} -->`;
 }
 
@@ -48,16 +65,26 @@ export function commentBody(key: string, body: string, footer?: string): string 
   return head + text + tail;
 }
 
-/** Updates the comment that carries the marker of `key`, or makes it. */
+/**
+ * Updates the comment that carries the marker of `key`, or makes it. With `sha`, the commit the run gated,
+ * skips when the pull request has moved on, so a run that ends late does not cover a newer run's result.
+ */
 export async function upsertComment(
   api: CommentApi,
   issueNumber: number,
   key: string,
   body: string,
-): Promise<'created' | 'updated'> {
+  sha?: string,
+): Promise<'created' | 'updated' | 'skipped'> {
+  if (sha) {
+    const head = await api.headSha(issueNumber);
+    if (head && head !== sha) {
+      return 'skipped';
+    }
+  }
   const marker = commentMarker(key);
   const comments = await api.listComments(issueNumber);
-  const previous = comments.find((c) => c.body?.startsWith(marker));
+  const previous = comments.find((c) => c.body?.startsWith(marker) && isOwnComment(c));
   if (previous) {
     await api.updateComment(previous.id, body);
     return 'updated';
@@ -78,6 +105,9 @@ export interface RestApiOptions {
 /** The longest list of comments read: 100 pages of 100. */
 const MAX_PAGES = 100;
 
+/** How long one request to GitHub may take, so an API that hangs does not hold the step. */
+const REQUEST_TIMEOUT_MS = 30_000;
+
 /** GitHub's REST API for issue comments, by `fetch`, so the action needs no client library. */
 export function restCommentApi({
   apiUrl,
@@ -85,7 +115,9 @@ export function restCommentApi({
   token,
   fetch: doFetch = fetch,
 }: RestApiOptions): CommentApi {
-  const base = `${apiUrl.replace(/\/+$/, '')}/repos/${repository}/issues`;
+  const repo = `${apiUrl.replace(/\/+$/, '')}/repos/${repository}`;
+  const base = `${repo}/issues`;
+  const pulls = `${repo}/pulls`;
   const request = async (method: string, url: string, body?: unknown): Promise<unknown> => {
     const res = await doFetch(url, {
       method,
@@ -97,6 +129,7 @@ export function restCommentApi({
         ...(body === undefined ? {} : { 'Content-Type': 'application/json' }),
       },
       ...(body === undefined ? {} : { body: JSON.stringify(body) }),
+      signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
     });
     if (!res.ok) {
       const text = (await res.text().catch(() => '')).slice(0, 300);
@@ -124,6 +157,10 @@ export function restCommentApi({
     },
     async createComment(issueNumber, body) {
       await request('POST', `${base}/${issueNumber}/comments`, { body });
+    },
+    async headSha(pullNumber) {
+      const pr = (await request('GET', `${pulls}/${pullNumber}`)) as { head?: { sha?: unknown } };
+      return typeof pr.head?.sha === 'string' ? pr.head.sha : undefined;
     },
     async updateComment(commentId, body) {
       await request('PATCH', `${base}/comments/${commentId}`, { body });

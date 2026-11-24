@@ -114,6 +114,11 @@ export function cliEnv(apiKey: string, apiUrl: string): CliEnv {
   return { ANALYZER_API_KEY: apiKey, ANALYZER_URL: apiUrl.replace(/\/+$/, '') };
 }
 
+/** The environment without the step's inputs, which the runner passes as `INPUT_*` variables. */
+function withoutInputs(env: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
+  return Object.fromEntries(Object.entries(env).filter(([name]) => !name.startsWith('INPUT_')));
+}
+
 /**
  * Runs the CLI at `analyzerPath`. Its stderr is its progress, passed to `log` line by line as it comes, so
  * a wait of hours shows in the job log. Its stdout is kept for the JSON document it ends with.
@@ -122,7 +127,8 @@ export function spawnCli(analyzerPath: string, log: (line: string) => void): Cli
   return ({ args, env, timeoutSeconds }) =>
     new Promise((resolve, reject) => {
       const child = spawn(analyzerPath, args, {
-        env: { ...process.env, ...env },
+        // Without the step's inputs (`INPUT_*`), so the CLI never sees the github-token.
+        env: { ...withoutInputs(process.env), ...env },
         stdio: ['ignore', 'pipe', 'pipe'],
       });
       let stopped: Error | undefined;
