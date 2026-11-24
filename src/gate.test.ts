@@ -130,6 +130,8 @@ interface Run {
   warnings: string[];
   /** The messages the step failed with. */
   failed: string[];
+  /** The comments on the pull request, by object. */
+  comments: { key: string; body: string }[];
   result?: GateReport | NewScan | ScanStatus;
   error?: Error;
 }
@@ -148,6 +150,7 @@ async function run(
     infos: [],
     warnings: [],
     failed: [],
+    comments: [],
   };
   const cli: CliRunner = async (call) => {
     r.calls.push(call);
@@ -169,6 +172,7 @@ async function run(
     outDir: OUT_DIR,
     now: () => clock,
     setFailed: (message) => r.failed.push(message),
+    prComment: async (key, body) => void r.comments.push({ key, body }),
   };
   try {
     r.result = await runMode(inputs, deps);
@@ -609,6 +613,59 @@ describe('gate: true', () => {
   });
 });
 
+describe('the pull request comment', () => {
+  it('comments the summary, headed with the object key', async () => {
+    const r = await run(gate());
+    assert.deepEqual(r.comments, [
+      { key: 'gateway-firmware', body: renderSummary(report(), 'gateway-firmware') },
+    ]);
+    assert.match(r.comments[0].body, /^## Exein Analyzer release gate: passed for `gateway-firmware`\n/);
+  });
+
+  it('comments the failures of a failed gate', async () => {
+    const failure = '1 reachable or unresolved CVE at high or above';
+    const r = await run(gate({ failOn: 'high' }), {
+      gate: gateFailed(report({ 'fail-on': 'high', passed: false, blocking: 1, failures: [failure] })),
+    });
+    assert.equal(r.comments.length, 1);
+    assert.ok(r.comments[0].body.includes(`- ${failure}\n`));
+    assert.match(r.comments[0].body, /release gate: failed for/);
+  });
+
+  it('keys an object named by its id by that id', async () => {
+    const r = await run(gate({ target: BY_ID }));
+    assert.equal(r.comments[0].key, OBJECT_ID);
+  });
+
+  it('keys a scan made earlier by the object of the scan', async () => {
+    const r = await run(gate({ target: { scanId: SCAN_ID } }));
+    assert.equal(r.comments[0].key, OBJECT_ID);
+  });
+
+  it('comments the error of a gate with no result, with the link', async () => {
+    const error = 'the timeout ran out';
+    const r = await run(gate(), { gate: noResult(error) });
+    assert.deepEqual(r.comments, [
+      { key: 'gateway-firmware', body: renderErrorSummary(error, SCAN_URL, 'gateway-firmware') },
+    ]);
+  });
+
+  it('does not comment the error of a scan made earlier, whose object is not known', async () => {
+    const r = await run(gate({ target: { scanId: SCAN_ID } }), { gate: noResult('no such scan') });
+    assert.deepEqual(r.comments, []);
+  });
+
+  it('does not comment an upload without the gate', async () => {
+    const r = await run(scan());
+    assert.deepEqual(r.comments, []);
+  });
+
+  it('does not comment the status of a scan', async () => {
+    const r = await run(status());
+    assert.deepEqual(r.comments, []);
+  });
+});
+
 describe('gate: false', () => {
   describe('an upload to an object by its key, with a build VEX', () => {
     let r: Run;
@@ -917,6 +974,30 @@ describe('renderSummary', () => {
     it('shows no table', () => {
       assert.ok(!md.includes('| Severity |'));
     });
+  });
+
+  it('shows the fix-now count when the server sends one', () => {
+    const md = renderSummary(report({ 'cve-counts': counts({ 'fix-now': 2 }) }));
+    assert.ok(
+      md.includes(
+        '\nFix now: **2** CVEs are reachable and dangerous (in CISA KEV or above the EPSS threshold).\n',
+      ),
+    );
+  });
+
+  it('reads the fix-now count in snake case too, and says none', () => {
+    const md = renderSummary(report({ 'cve-counts': counts({ fix_now: 0 }) }));
+    assert.ok(md.includes('\nFix now: 0 CVEs are reachable'));
+  });
+
+  it('says nothing of fix-now when the server sends no count', () => {
+    assert.ok(!renderSummary(report()).includes('Fix now'));
+  });
+
+  it('names the object in the heading, for the comment', () => {
+    assert.ok(
+      renderSummary(report(), 'gateway').startsWith('## Exein Analyzer release gate: passed for `gateway`\n'),
+    );
   });
 
   it('says why the report is missing', () => {

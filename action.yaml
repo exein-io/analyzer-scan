@@ -63,6 +63,16 @@ inputs:
     required: false
     default: '5h30m'
 
+  # Pull request comment
+  pr-comment:
+    description: "Gate: on a pull_request event, post the gate's result as a comment on the pull request, one per object, updated on each run. false turns it off. Needs the pull-requests: write permission; a comment that fails only warns"
+    required: false
+    default: 'true'
+  github-token:
+    description: 'Token the gate comments on the pull request with. Defaults to the workflow token'
+    required: false
+    default: '${{ github.token }}'
+
 outputs:
   scan-id:
     description: 'UUID of the created scan'

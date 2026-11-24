@@ -1,6 +1,7 @@
 import * as path from 'path';
 import {
   cliEnv,
+  fixNowCount,
   scanGate,
   scanNew,
   scanStatus,
@@ -37,6 +38,11 @@ export interface Deps {
   now(): number;
   /** Fails the step, as `core.setFailed`. */
   setFailed(message: string): void;
+  /**
+   * Posts or updates the comment of the object `key` on the pull request. Unset outside a pull request, or
+   * with `pr-comment: false`. Never throws: a comment that fails only warns.
+   */
+  prComment?(key: string, body: string): Promise<void>;
 }
 
 function errorMessage(err: unknown): string {
@@ -123,6 +129,8 @@ export async function runMode(inputs: Inputs, deps: Deps): Promise<NewScan | Gat
 export async function runGate(inputs: GateInputs, deps: Deps): Promise<GateReport> {
   const deadline = new Deadline(deps, inputs.timeoutSeconds);
   const env = cliEnv(inputs.apiKey, inputs.apiUrl);
+  // The comment's key: the object as the inputs name it. With scan-id, the object of the scan, once known.
+  let key = 'scanId' in inputs.target ? undefined : objectName(inputs.target);
   let link: string | undefined;
   try {
     let scanId: string;
@@ -158,8 +166,13 @@ export async function runGate(inputs: GateInputs, deps: Deps): Promise<GateRepor
       }
     }
     await deps.writeSummary(renderSummary(report));
+    key ??= report['object-id'];
+    await deps.prComment?.(key, renderSummary(report, key));
     return report;
   } catch (err) {
+    if (key) {
+      await deps.prComment?.(key, renderErrorSummary(errorMessage(err), link, key));
+    }
     return fail(err, deps, link);
   }
 }
@@ -204,11 +217,17 @@ function capitalize(s: string): string {
   return s.charAt(0).toUpperCase() + s.slice(1);
 }
 
-/** The job summary: the decision and why, and a table of the counts per severity. */
-export function renderSummary(report: GateReport): string {
+/**
+ * The job summary: the decision and why, and a table of the counts per severity. With `object`, the comment
+ * on the pull request, whose heading names the object, as a workflow may gate several.
+ */
+export function renderSummary(report: GateReport, object?: string): string {
   const failOn = report['fail-on'];
   const counts = report['cve-counts'];
-  const lines = [`## Exein Analyzer release gate: ${report.passed ? 'passed' : 'failed'}`, ''];
+  const lines = [
+    `## Exein Analyzer release gate: ${report.passed ? 'passed' : 'failed'}${object ? ` for \`${object}\`` : ''}`,
+    '',
+  ];
   if (failOn === 'none') {
     lines.push("fail-on `none`: report only, CVEs don't fail the step.", '');
   } else if (report.passed) {
@@ -216,6 +235,13 @@ export function renderSummary(report: GateReport): string {
   }
   if (report.failures.length > 0) {
     lines.push(...report.failures.map((f) => `- ${f}`), '');
+  }
+  const fixNow = counts ? fixNowCount(counts) : undefined;
+  if (fixNow !== undefined) {
+    lines.push(
+      `Fix now: ${fixNow > 0 ? `**${fixNow}**` : '0'} ${fixNow === 1 ? 'CVE is' : 'CVEs are'} reachable and dangerous (in CISA KEV or above the EPSS threshold).`,
+      '',
+    );
   }
   if (!counts) {
     const reason = report['no-counts-reason'];
@@ -257,7 +283,8 @@ export function renderSummary(report: GateReport): string {
   return lines.join('\n') + '\n';
 }
 
-function objectName(upload: Upload): string {
+/** The object as the inputs name it: its key, or its id. */
+export function objectName(upload: Upload): string {
   return 'id' in upload.object ? upload.object.id : upload.object.key;
 }
 
@@ -276,8 +303,13 @@ export function renderStatusSummary(scan: ScanStatus): string {
   return `Exein Analyzer scan \`${scan.id}\`: status \`${scan.status}\`, ${scan.finished ? 'finished' : 'not finished'}.\n`;
 }
 
-export function renderErrorSummary(message: string, link?: string): string {
-  return ['## Exein Analyzer: error', '', message, ...(link ? ['', `[The scan](${link})`] : []), ''].join(
-    '\n',
-  );
+/** The summary of a step with no result. With `object`, the comment on the pull request. */
+export function renderErrorSummary(message: string, link?: string, object?: string): string {
+  return [
+    `## Exein Analyzer: error${object ? ` for \`${object}\`` : ''}`,
+    '',
+    message,
+    ...(link ? ['', `[The scan](${link})`] : []),
+    '',
+  ].join('\n');
 }

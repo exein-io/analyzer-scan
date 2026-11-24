@@ -22,6 +22,15 @@ export interface CveCounts {
   medium: CveTiers;
   low: CveTiers;
   unknown: CveTiers;
+  /** The CVEs that are reachable and dangerous (in CISA KEV or above the EPSS threshold), on servers that send it. */
+  'fix-now'?: number | null;
+  fix_now?: number | null;
+}
+
+/** The fix-now count of the counts, when the server sends one. */
+export function fixNowCount(counts: CveCounts): number | undefined {
+  const n = counts['fix-now'] ?? counts.fix_now;
+  return typeof n === 'number' ? n : undefined;
 }
 
 /** What `analyzer scan new --format json` prints. */

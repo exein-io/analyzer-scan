@@ -31924,12 +31924,30 @@ function parseInputs(getInput) {
     }
     return { ...common, mode, upload: parseUpload(getInput, mode) };
 }
+/** `pr-comment`: whether the gate comments on the pull request it runs for. On by default. */
+function parsePrComment(getInput) {
+    const value = getInput('pr-comment').trim().toLowerCase();
+    switch (value) {
+        case '':
+        case 'true':
+            return true;
+        case 'false':
+            return false;
+        default:
+            throw new Error(`Invalid pr-comment "${value}". Must be true or false`);
+    }
+}
 
 ;// CONCATENATED MODULE: ./src/analyzer.ts
 
 
 
 
+/** The fix-now count of the counts, when the server sends one. */
+function fixNowCount(counts) {
+    const n = counts['fix-now'] ?? counts.fix_now;
+    return typeof n === 'number' ? n : undefined;
+}
 /** Done; for `scan gate`, the gate passed. */
 const EXIT_DONE = 0;
 /** `scan gate` only: the gate failed. */
@@ -32134,6 +32152,110 @@ function installAnalyzerCli(version, apiKey, apiUrl, info) {
     return analyzerPath;
 }
 
+;// CONCATENATED MODULE: ./src/comment.ts
+/**
+ * The comment on the pull request: one per pull request and object, found again by a hidden marker and
+ * updated on each run. Posted with the workflow's own token, by GitHub's REST API.
+ */
+/** The events whose payload names a pull request to comment on. */
+const PR_EVENTS = ['pull_request', 'pull_request_target'];
+/** GitHub refuses a comment body longer than this. */
+const MAX_COMMENT_LENGTH = 65_536;
+/** The hidden line that tells this comment from the others: one per object, so each scan step keeps its own. */
+function commentMarker(key) {
+    // An HTML comment ends at `--`, so the key keeps safe characters and single hyphens only.
+    const safe = key.replace(/[^A-Za-z0-9._-]/g, '_').replace(/-{2,}/g, '-');
+    return `<!-- exein-analyzer-scan:${safe} -->`;
+}
+/** The number of the pull request of the event, or undefined outside a pull request event. */
+function pullRequestNumber(eventName, payload) {
+    if (!PR_EVENTS.includes(eventName)) {
+        return undefined;
+    }
+    const number = payload?.pull_request?.number;
+    return typeof number === 'number' ? number : undefined;
+}
+/** The marker first, so the comment is found again; the body cut to what GitHub takes. */
+function commentBody(key, body, footer) {
+    const head = `${commentMarker(key)}\n`;
+    const tail = footer ? `\n${footer}\n` : '';
+    const room = MAX_COMMENT_LENGTH - head.length - tail.length;
+    const cut = '\n\n(cut to fit a comment: the job summary has it all)\n';
+    const text = body.length > room ? body.slice(0, room - cut.length) + cut : body;
+    return head + text + tail;
+}
+/** Updates the comment that carries the marker of `key`, or makes it. */
+async function upsertComment(api, issueNumber, key, body) {
+    const marker = commentMarker(key);
+    const comments = await api.listComments(issueNumber);
+    const previous = comments.find((c) => c.body?.startsWith(marker));
+    if (previous) {
+        await api.updateComment(previous.id, body);
+        return 'updated';
+    }
+    await api.createComment(issueNumber, body);
+    return 'created';
+}
+/** The longest list of comments read: 100 pages of 100. */
+const MAX_PAGES = 100;
+/** GitHub's REST API for issue comments, by `fetch`, so the action needs no client library. */
+function restCommentApi({ apiUrl, repository, token, fetch: doFetch = fetch, }) {
+    const base = `${apiUrl.replace(/\/+$/, '')}/repos/${repository}/issues`;
+    const request = async (method, url, body) => {
+        const res = await doFetch(url, {
+            method,
+            headers: {
+                Accept: 'application/vnd.github+json',
+                Authorization: `Bearer ${token}`,
+                'X-GitHub-Api-Version': '2022-11-28',
+                'User-Agent': 'exein-analyzer-scan',
+                ...(body === undefined ? {} : { 'Content-Type': 'application/json' }),
+            },
+            ...(body === undefined ? {} : { body: JSON.stringify(body) }),
+        });
+        if (!res.ok) {
+            const text = (await res.text().catch(() => '')).slice(0, 300);
+            throw new GitHubApiError(res.status, `${method} ${url} answered ${res.status}${text ? `: ${text}` : ''}`);
+        }
+        return method === 'GET' ? res.json() : undefined;
+    };
+    return {
+        async listComments(issueNumber) {
+            const all = [];
+            for (let page = 1; page <= MAX_PAGES; page++) {
+                const batch = (await request('GET', `${base}/${issueNumber}/comments?per_page=100&page=${page}`));
+                all.push(...batch);
+                if (batch.length < 100) {
+                    break;
+                }
+            }
+            return all;
+        },
+        async createComment(issueNumber, body) {
+            await request('POST', `${base}/${issueNumber}/comments`, { body });
+        },
+        async updateComment(commentId, body) {
+            await request('PATCH', `${base}/comments/${commentId}`, { body });
+        },
+    };
+}
+class GitHubApiError extends Error {
+    status;
+    constructor(status, message) {
+        super(message);
+        this.status = status;
+        this.name = 'GitHubApiError';
+    }
+}
+/** The warning for a comment that failed. The step goes on. */
+function commentWarning(err) {
+    const message = err instanceof Error ? err.message : String(err);
+    const hint = err instanceof GitHubApiError && (err.status === 401 || err.status === 403 || err.status === 404)
+        ? ". The token needs the pull-requests: write permission; a pull request from a fork gets a read-only token. Set pr-comment: 'false' to turn the comment off"
+        : '';
+    return `Could not comment on the pull request: ${message}${hint}`;
+}
+
 ;// CONCATENATED MODULE: ./src/gate.ts
 
 
@@ -32214,6 +32336,8 @@ async function runMode(inputs, deps) {
 async function runGate(inputs, deps) {
     const deadline = new Deadline(deps, inputs.timeoutSeconds);
     const env = cliEnv(inputs.apiKey, inputs.apiUrl);
+    // The comment's key: the object as the inputs name it. With scan-id, the object of the scan, once known.
+    let key = 'scanId' in inputs.target ? undefined : objectName(inputs.target);
     let link;
     try {
         let scanId;
@@ -32250,9 +32374,14 @@ async function runGate(inputs, deps) {
             }
         }
         await deps.writeSummary(renderSummary(report));
+        key ??= report['object-id'];
+        await deps.prComment?.(key, renderSummary(report, key));
         return report;
     }
     catch (err) {
+        if (key) {
+            await deps.prComment?.(key, renderErrorSummary(errorMessage(err), link, key));
+        }
         return fail(err, deps, link);
     }
 }
@@ -32286,11 +32415,17 @@ const SEVERITY_ROWS = [...FAIL_ON_SEVERITIES, 'unknown'];
 function capitalize(s) {
     return s.charAt(0).toUpperCase() + s.slice(1);
 }
-/** The job summary: the decision and why, and a table of the counts per severity. */
-function renderSummary(report) {
+/**
+ * The job summary: the decision and why, and a table of the counts per severity. With `object`, the comment
+ * on the pull request, whose heading names the object, as a workflow may gate several.
+ */
+function renderSummary(report, object) {
     const failOn = report['fail-on'];
     const counts = report['cve-counts'];
-    const lines = [`## Exein Analyzer release gate: ${report.passed ? 'passed' : 'failed'}`, ''];
+    const lines = [
+        `## Exein Analyzer release gate: ${report.passed ? 'passed' : 'failed'}${object ? ` for \`${object}\`` : ''}`,
+        '',
+    ];
     if (failOn === 'none') {
         lines.push("fail-on `none`: report only, CVEs don't fail the step.", '');
     }
@@ -32299,6 +32434,10 @@ function renderSummary(report) {
     }
     if (report.failures.length > 0) {
         lines.push(...report.failures.map((f) => `- ${f}`), '');
+    }
+    const fixNow = counts ? fixNowCount(counts) : undefined;
+    if (fixNow !== undefined) {
+        lines.push(`Fix now: ${fixNow > 0 ? `**${fixNow}**` : '0'} ${fixNow === 1 ? 'CVE is' : 'CVEs are'} reachable and dangerous (in CISA KEV or above the EPSS threshold).`, '');
     }
     if (!counts) {
         const reason = report['no-counts-reason'];
@@ -32330,6 +32469,7 @@ function renderSummary(report) {
     }
     return lines.join('\n') + '\n';
 }
+/** The object as the inputs name it: its key, or its id. */
 function objectName(upload) {
     return 'id' in upload.object ? upload.object.id : upload.object.key;
 }
@@ -32346,8 +32486,15 @@ function renderUploadSummary(upload, scan) {
 function renderStatusSummary(scan) {
     return `Exein Analyzer scan \`${scan.id}\`: status \`${scan.status}\`, ${scan.finished ? 'finished' : 'not finished'}.\n`;
 }
-function renderErrorSummary(message, link) {
-    return ['## Exein Analyzer: error', '', message, ...(link ? ['', `[The scan](${link})`] : []), ''].join('\n');
+/** The summary of a step with no result. With `object`, the comment on the pull request. */
+function renderErrorSummary(message, link, object) {
+    return [
+        `## Exein Analyzer: error${object ? ` for \`${object}\`` : ''}`,
+        '',
+        message,
+        ...(link ? ['', `[The scan](${link})`] : []),
+        '',
+    ].join('\n');
 }
 
 ;// CONCATENATED MODULE: ./src/index.ts
@@ -32356,10 +32503,61 @@ function renderErrorSummary(message, link) {
 
 
 
+
+
+function readEventPayload() {
+    const file = process.env.GITHUB_EVENT_PATH;
+    if (!file) {
+        return undefined;
+    }
+    try {
+        return JSON.parse(external_fs_namespaceObject.readFileSync(file, 'utf8'));
+    }
+    catch {
+        return undefined;
+    }
+}
+/** The comment on the pull request of the event, or undefined when there is none to post. */
+function prCommenter(enabled) {
+    const payload = readEventPayload();
+    const prNumber = pullRequestNumber(process.env.GITHUB_EVENT_NAME, payload);
+    if (!enabled || prNumber === undefined) {
+        return undefined;
+    }
+    const token = getInput('github-token');
+    const repository = process.env.GITHUB_REPOSITORY;
+    if (!token || !repository) {
+        warning('No github-token, so the gate does not comment on the pull request');
+        return undefined;
+    }
+    setSecret(token);
+    const api = restCommentApi({
+        apiUrl: process.env.GITHUB_API_URL || 'https://api.github.com',
+        repository,
+        token,
+    });
+    const { GITHUB_SERVER_URL, GITHUB_RUN_ID } = process.env;
+    const sha = payload?.pull_request?.head
+        ?.sha;
+    const run = GITHUB_SERVER_URL && GITHUB_RUN_ID
+        ? `[run ${GITHUB_RUN_ID}](${GITHUB_SERVER_URL}/${repository}/actions/runs/${GITHUB_RUN_ID})`
+        : 'the latest run';
+    const footer = `<sub>From ${run}${sha ? ` on ${sha.slice(0, 7)}` : ''}. Updated on each run.</sub>`;
+    return async (key, body) => {
+        try {
+            const done = await upsertComment(api, prNumber, key, commentBody(key, body, footer));
+            info(`Comment on pull request #${prNumber} ${done}`);
+        }
+        catch (err) {
+            warning(commentWarning(err));
+        }
+    };
+}
 async function main() {
     try {
         const inputs = parseInputs(getInput);
         setSecret(inputs.apiKey);
+        const prComment = prCommenter(parsePrComment(getInput));
         const analyzerPath = installAnalyzerCli(inputs.cliVersion, inputs.apiKey, inputs.apiUrl, info);
         const deps = {
             cli: spawnCli(analyzerPath, info),
@@ -32373,6 +32571,7 @@ async function main() {
             outDir: process.cwd(),
             now: Date.now,
             setFailed: setFailed,
+            ...(prComment ? { prComment } : {}),
         };
         await runMode(inputs, deps);
     }

@@ -4,7 +4,7 @@
 
 GitHub Action for [Exein Analyzer](https://www.exein.io/platform/exein-analyzer). Scans pre-built firmware images and container images for vulnerabilities, supply chain risks, and security misconfigurations on every build, and can gate a release on its CVEs.
 
-The action is a thin wrapper around the [Analyzer CLI](https://github.com/exein-io/homebrew-tools). It downloads the CLI, runs `analyzer scan new`, `analyzer scan gate` or `analyzer scan status`, and turns their JSON output into step outputs and a job summary. It makes no API calls of its own. A GitLab or Jenkins pipeline gets the same scan and gate by running the CLI directly.
+The action is a thin wrapper around the [Analyzer CLI](https://github.com/exein-io/homebrew-tools). It downloads the CLI, runs `analyzer scan new`, `analyzer scan gate` or `analyzer scan status`, and turns their JSON output into step outputs and a job summary. On a pull request, the gate also [comments its result](#pull-request-comment) with the workflow's own token. Apart from that comment, it makes no API calls of its own. A GitLab or Jenkins pipeline gets the same scan and gate by [running the CLI directly](#gitlab-ci-and-jenkins).
 
 ## Supported firmware
 
@@ -395,6 +395,42 @@ With `gate: status` and `scan-id`, the action runs `analyzer scan status` once. 
     scan-id: ${{ inputs.scan-id }}
 ```
 
+### Pull request comment
+
+When the gate runs on a `pull_request` event, it posts its result as a comment on the pull request: the decision, the reasons the gate failed, the table of counts from the job summary, the fix-now count when the server sends one, and the link to the scan. Each run updates the same comment instead of adding one. A hidden marker with the object key (or the object id) finds it again, so a workflow that gates several objects keeps one comment per object.
+
+The comment uses the workflow's own token, so the job needs `pull-requests: write`:
+
+```yaml
+on:
+  pull_request:
+
+permissions:
+  contents: read
+  pull-requests: write
+
+jobs:
+  scan:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - run: ./build.sh # writes build/firmware.tar.gz
+
+      - uses: exein-io/analyzer-scan@v2
+        with:
+          api-key: ${{ secrets.ANALYZER_API_KEY }}
+          gate: 'true'
+          object-key: gateway-firmware
+          scan-type: linux
+          file-path: build/firmware.tar.gz
+          fail-on: high
+```
+
+A gate with no result, such as a timeout, comments its error, so the comment never shows an earlier run's decision as current. With `scan-id` and no result, the gate doesn't know the scan's object yet and doesn't comment.
+
+A comment that fails only warns, and never fails the step: a token without `pull-requests: write`, or the read-only token of a pull request from a fork. Only the gate comments. `gate: false`, `gate: status`, and events other than a pull request don't. Set `pr-comment: 'false'` to turn the comment off, and `github-token` to comment with another token. The action also reads `pull_request_target`, but don't run a scan on it: that event runs with the base repository's secrets on code from the pull request.
+
 ### How the gate decides
 
 A CVE blocks when it is at `fail-on` or above and reachable or unresolved. Reachable means exploitable. Unresolved means in triage or not classified yet. A CVE whose VEX state is `not_affected`, `resolved`, `resolved_with_pedigree` or `false_positive` is unreachable and never blocks. Neither does a CVE with no critical, high, medium or low rating. The blocking count matches a jq filter over the downloaded VEX that counts the CVEs at `fail-on` or above in none of those four states.
@@ -437,6 +473,8 @@ Release gate inputs:
 | `gate` | no | `false` | `false` only uploads the image, for a later gate with `scan-id`. `true` runs the [release gate](#release-gate). `status` [checks the scan](#check-a-scan) of `scan-id`, and fails only when it can't read it |
 | `scan-id` | with `gate: status` | — | Gate this scan made earlier instead of uploading an image, with `gate: 'true'`. The scan to check, with `gate: status` |
 | `fail-on` | no | `critical` | Lowest severity that blocks: `critical`, `high`, `medium`, or `low`. `none` reports only, for pipelines that gate on something else: no CVE fails the step, and `blocking` is `0`. Read only by `gate: 'true'` |
+| `pr-comment` | no | `true` | On a `pull_request` event, [comment the gate's result](#pull-request-comment) on the pull request, one comment per object, updated on each run. `false` turns it off. Read only by `gate: 'true'` |
+| `github-token` | no | `${{ github.token }}` | Token for the pull request comment. It needs `pull-requests: write` |
 
 The gate always downloads the SBOM, VEX and report.
 
@@ -454,6 +492,111 @@ The gate always downloads the SBOM, VEX and report.
 | `blocking` | Gate: number of blocking CVEs, empty when the scan has no counts. The step's outcome is the decision: a failed scan or a missing SBOM or VEX fails the gate with `blocking` at `0` |
 | `scan-status` | Gate and `gate: status`: the scan's status, `pending`, `in-progress`, `success`, `error` or `canceled` |
 | `finished` | `gate: status`: `'true'` once the scan ended in `success`, `error` or `canceled`, `'false'` while it runs |
+
+## GitLab CI and Jenkins
+
+Outside GitHub, run the [Analyzer CLI](https://github.com/exein-io/homebrew-tools) directly. The action runs the same two commands:
+
+1. `analyzer scan new --object-key <key> --file <image> --type docker|linux` uploads the image and starts a scan. With `--format json` it prints `{"id", "object-id", "url", "reused"}`.
+2. `analyzer scan gate --scan <id> --fail-on <severity> --out-dir <dir>` waits for the scan, downloads `<scan-id>-sbom.json`, `<scan-id>-vex.json` and `<scan-id>-report.pdf` into `<dir>`, and decides.
+
+The CLI reads the API key from `ANALYZER_API_KEY` and the API root from `ANALYZER_URL`. Keep the key in a masked CI secret. The platform serves each CLI release at `<api root>/releases/analyzer-cli/<version>/analyzer-<target>.tar.gz`, behind the same API key. Pin the version, as the action does with `cli-version`. The builds are `x86_64-unknown-linux-gnu`, `aarch64-unknown-linux-gnu`, `x86_64-apple-darwin` and `aarch64-apple-darwin`, so a Linux runner needs glibc (Debian or Ubuntu, not Alpine).
+
+`scan gate` exits with the decision:
+
+| Exit code | Meaning |
+|---|---|
+| 0 | The gate passed |
+| 1 | The gate failed: blocking CVEs, a scan that ended `error` or `canceled`, or a missing SBOM or VEX |
+| 2 | No result: a refused key or upload, an outage that outlasted the retries, or the timeout. The scan id is in the error, so a later job can gate that scan |
+
+Any non-zero exit fails the job. Keep `--timeout` under the job's own timeout, so the CLI reports the scan id before the runner stops it. The snippets keep the evidence as artifacts whether the gate passed or not.
+
+### GitLab CI
+
+Add `ANALYZER_API_KEY` as a masked CI/CD variable (Settings > CI/CD > Variables).
+
+```yaml
+analyzer-gate:
+  stage: test
+  image: debian:bookworm-slim
+  needs: [build] # the job that writes build/firmware.tar.gz as an artifact
+  timeout: 6h
+  variables:
+    ANALYZER_URL: https://analyzer.exein.io/api
+    ANALYZER_CLI_VERSION: v1.1.0
+  before_script:
+    - apt-get update -qq && apt-get install -y -qq --no-install-recommends ca-certificates curl jq
+    - mkdir -p /opt/analyzer
+    - >
+      curl -fsSL -o /tmp/analyzer.tar.gz -H "Authorization: Bearer $ANALYZER_API_KEY"
+      "$ANALYZER_URL/releases/analyzer-cli/$ANALYZER_CLI_VERSION/analyzer-x86_64-unknown-linux-gnu.tar.gz"
+    - tar xzf /tmp/analyzer.tar.gz -C /opt/analyzer
+    - export PATH="/opt/analyzer:$PATH"
+  script:
+    - >
+      analyzer scan new --object-key gateway-firmware --file build/firmware.tar.gz
+      --type linux --format json > scan.json
+    - SCAN_ID=$(jq -r .id scan.json)
+    - echo "Analyzer scan $SCAN_ID at $(jq -r .url scan.json)"
+    # Exit 0: passed. 1: failed. 2: no result. Any non-zero fails the job.
+    - analyzer scan gate --scan "$SCAN_ID" --fail-on high --timeout 5h30m --out-dir evidence
+  artifacts:
+    when: always
+    paths:
+      - evidence/
+```
+
+### Jenkins
+
+Add the API key as a "Secret text" credential, here with the id `analyzer-api-key`. The agent needs `curl`, `jq` and `tar`.
+
+```groovy
+pipeline {
+  agent any
+  options {
+    timeout(time: 6, unit: 'HOURS')
+  }
+  environment {
+    ANALYZER_URL = 'https://analyzer.exein.io/api'
+    ANALYZER_CLI_VERSION = 'v1.1.0'
+    ANALYZER_API_KEY = credentials('analyzer-api-key')
+  }
+  stages {
+    stage('Build') {
+      steps {
+        sh './build.sh' // writes build/firmware.tar.gz
+      }
+    }
+    stage('Analyzer gate') {
+      steps {
+        sh '''
+          mkdir -p "$WORKSPACE/.analyzer"
+          curl -fsSL -o analyzer.tar.gz -H "Authorization: Bearer $ANALYZER_API_KEY" \
+            "$ANALYZER_URL/releases/analyzer-cli/$ANALYZER_CLI_VERSION/analyzer-x86_64-unknown-linux-gnu.tar.gz"
+          tar xzf analyzer.tar.gz -C "$WORKSPACE/.analyzer"
+          export PATH="$WORKSPACE/.analyzer:$PATH"
+
+          analyzer scan new --object-key gateway-firmware --file build/firmware.tar.gz \
+            --type linux --format json > scan.json
+          SCAN_ID=$(jq -r .id scan.json)
+          echo "Analyzer scan $SCAN_ID at $(jq -r .url scan.json)"
+
+          # Exit 0: passed. 1: failed. 2: no result. Any non-zero fails the stage.
+          analyzer scan gate --scan "$SCAN_ID" --fail-on high --timeout 5h30m --out-dir evidence
+        '''
+      }
+      post {
+        always {
+          archiveArtifacts artifacts: 'evidence/*', allowEmptyArchive: true
+        }
+      }
+    }
+  }
+}
+```
+
+Single quotes around the `sh` script keep Groovy from interpolating the key into the script, so the shell reads it from the environment. On an `aarch64` runner, download `analyzer-aarch64-unknown-linux-gnu.tar.gz`. For an object by its UUID, pass `--object <uuid>` instead of `--object-key`. For the build's VEX, add `--vex <file>` to `scan new`. A GitLab merge request comment is not built yet.
 
 ## Analyses
 

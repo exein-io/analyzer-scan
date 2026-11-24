@@ -1,6 +1,13 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
-import { formatSeconds, parseDuration, parseInputs, parseMode, type GetInput } from './inputs.js';
+import {
+  formatSeconds,
+  parseDuration,
+  parseInputs,
+  parseMode,
+  parsePrComment,
+  type GetInput,
+} from './inputs.js';
 
 /** Reads inputs from a record, failing on a missing required one as `core.getInput` does. */
 function inputs(values: Record<string, string>): GetInput {
@@ -391,5 +398,20 @@ describe('parseInputs', () => {
         /does not take object-key, file-path$/,
       );
     });
+  });
+});
+
+describe('parsePrComment', () => {
+  it('is on by default', () => {
+    assert.equal(parsePrComment(inputs({})), true);
+  });
+
+  it('reads true and false, in any case', () => {
+    assert.equal(parsePrComment(inputs({ 'pr-comment': 'TRUE' })), true);
+    assert.equal(parsePrComment(inputs({ 'pr-comment': 'false' })), false);
+  });
+
+  it('refuses anything else', () => {
+    assert.throws(() => parsePrComment(inputs({ 'pr-comment': 'no' })), /Invalid pr-comment "no"/);
   });
 });
