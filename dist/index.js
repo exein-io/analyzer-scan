@@ -31786,8 +31786,11 @@ const external_readline_namespaceObject = require("readline");
 /** The image types the Analyzer CLI scans. */
 const SCAN_TYPES = ['docker', 'linux'];
 const FAIL_ON_SEVERITIES = ['critical', 'high', 'medium', 'low'];
-/** The values of `fail-on`: the lowest severity that blocks, or `none`, which only reports. */
-const FAIL_ON_VALUES = [...FAIL_ON_SEVERITIES, 'none'];
+/**
+ * The values of `fail-on`: the lowest severity that blocks, `fix-now`, where any fix-now CVE blocks (a CLI and
+ * server that send the fix-now count), or `none`, which only reports.
+ */
+const FAIL_ON_VALUES = [...FAIL_ON_SEVERITIES, 'fix-now', 'none'];
 /** The Analyzer CLI release this major of the action is built for. */
 const DEFAULT_CLI_VERSION = 'v1.1.0';
 function parseMode(value) {
@@ -31924,12 +31927,51 @@ function parseInputs(getInput) {
     }
     return { ...common, mode, upload: parseUpload(getInput, mode) };
 }
+/** `pr-comment`: whether the gate comments on the pull request it runs for. On by default. */
+function parsePrComment(getInput) {
+    const raw = getInput('pr-comment').trim();
+    switch (raw.toLowerCase()) {
+        case '':
+        case 'true':
+            return true;
+        case 'false':
+            return false;
+        default:
+            throw new Error(`Invalid pr-comment "${raw}". Must be true or false`);
+    }
+}
 
 ;// CONCATENATED MODULE: ./src/analyzer.ts
 
 
 
 
+const FIX_NOW_SEVERITIES = ['critical', 'high', 'medium', 'low', 'unknown'];
+/** One fix-now body: a bare number is the total, with no split; a split keeps only the severities that are numbers. */
+function readFixNow(body) {
+    if (typeof body === 'number') {
+        return { total: body };
+    }
+    if (!body || typeof body !== 'object') {
+        return undefined;
+    }
+    const split = body;
+    if (typeof split.total !== 'number') {
+        return undefined;
+    }
+    const fixNow = { total: split.total };
+    for (const sev of FIX_NOW_SEVERITIES) {
+        const n = split[sev];
+        if (typeof n === 'number') {
+            fixNow[sev] = n;
+        }
+    }
+    return fixNow;
+}
+/** The fix-now count of the counts, when the server sends one; a bare number has no split. */
+function fixNowCount(counts) {
+    return readFixNow(counts['fix-now']) ?? readFixNow(counts.fix_now);
+}
 /** Done; for `scan gate`, the gate passed. */
 const EXIT_DONE = 0;
 /** `scan gate` only: the gate failed. */
@@ -31946,6 +31988,10 @@ class CliError extends Error {
 function cliEnv(apiKey, apiUrl) {
     return { ANALYZER_API_KEY: apiKey, ANALYZER_URL: apiUrl.replace(/\/+$/, '') };
 }
+/** The environment without the step's inputs, which the runner passes as `INPUT_*` variables. */
+function withoutInputs(env) {
+    return Object.fromEntries(Object.entries(env).filter(([name]) => !name.startsWith('INPUT_')));
+}
 /**
  * Runs the CLI at `analyzerPath`. Its stderr is its progress, passed to `log` line by line as it comes, so
  * a wait of hours shows in the job log. Its stdout is kept for the JSON document it ends with.
@@ -31953,7 +31999,8 @@ function cliEnv(apiKey, apiUrl) {
 function spawnCli(analyzerPath, log) {
     return ({ args, env, timeoutSeconds }) => new Promise((resolve, reject) => {
         const child = (0,external_child_process_namespaceObject.spawn)(analyzerPath, args, {
-            env: { ...process.env, ...env },
+            // Without the step's inputs (`INPUT_*`), so the CLI never sees the github-token.
+            env: { ...withoutInputs(process.env), ...env },
             stdio: ['ignore', 'pipe', 'pipe'],
         });
         let stopped;
@@ -32134,6 +32181,138 @@ function installAnalyzerCli(version, apiKey, apiUrl, info) {
     return analyzerPath;
 }
 
+;// CONCATENATED MODULE: ./src/comment.ts
+/**
+ * The comment on the pull request: one per pull request and object, found again by a hidden marker and
+ * updated on each run. Posted with the workflow's own token, by GitHub's REST API.
+ */
+/** The events whose payload names a pull request to comment on. */
+const PR_EVENTS = ['pull_request', 'pull_request_target'];
+/** GitHub refuses a comment body longer than this. */
+const MAX_COMMENT_LENGTH = 65_536;
+/** The authors whose comments with the marker the action takes over: no outside contributor. */
+const TRUSTED_ASSOCIATIONS = ['OWNER', 'MEMBER', 'COLLABORATOR'];
+/**
+ * A comment the action may update: one by a bot, as with the workflow token, or by someone with write access,
+ * as with a personal token. Anyone can paste the marker, so a comment by anyone else is never adopted.
+ */
+function isOwnComment(c) {
+    return c.user?.type === 'Bot' || TRUSTED_ASSOCIATIONS.includes(c.author_association ?? '');
+}
+/** The hidden line that tells this comment from the others: one per object, so each scan step keeps its own. */
+function commentMarker(key) {
+    // An HTML comment ends at `--`, so the key is percent-encoded, a hyphen before another hyphen too. Encoding
+    // keeps two keys apart, where replacing their characters would give both one marker and one comment.
+    const safe = encodeURIComponent(key).replace(/-(?=-)/g, '%2D');
+    return `<!-- exein-analyzer-scan:${safe} -->`;
+}
+/** The number of the pull request of the event, or undefined outside a pull request event. */
+function pullRequestNumber(eventName, payload) {
+    if (!PR_EVENTS.includes(eventName)) {
+        return undefined;
+    }
+    const number = payload?.pull_request?.number;
+    return typeof number === 'number' ? number : undefined;
+}
+/** The marker first, so the comment is found again; the body cut to what GitHub takes. */
+function commentBody(key, body, footer) {
+    const head = `${commentMarker(key)}\n`;
+    const tail = footer ? `\n${footer}\n` : '';
+    const room = MAX_COMMENT_LENGTH - head.length - tail.length;
+    const cut = '\n\n(cut to fit a comment: the job summary has it all)\n';
+    const text = body.length > room ? body.slice(0, room - cut.length) + cut : body;
+    return head + text + tail;
+}
+/**
+ * Updates the comment that carries the marker of `key`, or makes it. With `sha`, the commit the run gated,
+ * skips when the pull request has moved on, so a run that ends late does not cover a newer run's result.
+ */
+async function upsertComment(api, issueNumber, key, body, sha) {
+    if (sha) {
+        const head = await api.headSha(issueNumber);
+        if (head && head !== sha) {
+            return 'skipped';
+        }
+    }
+    const marker = commentMarker(key);
+    const comments = await api.listComments(issueNumber);
+    const previous = comments.find((c) => c.body?.startsWith(marker) && isOwnComment(c));
+    if (previous) {
+        await api.updateComment(previous.id, body);
+        return 'updated';
+    }
+    await api.createComment(issueNumber, body);
+    return 'created';
+}
+/** The longest list of comments read: 100 pages of 100. */
+const MAX_PAGES = 100;
+/** How long one request to GitHub may take, so an API that hangs does not hold the step. */
+const REQUEST_TIMEOUT_MS = 30_000;
+/** GitHub's REST API for issue comments, by `fetch`, so the action needs no client library. */
+function restCommentApi({ apiUrl, repository, token, fetch: doFetch = fetch, }) {
+    const repo = `${apiUrl.replace(/\/+$/, '')}/repos/${repository}`;
+    const base = `${repo}/issues`;
+    const pulls = `${repo}/pulls`;
+    const request = async (method, url, body) => {
+        const res = await doFetch(url, {
+            method,
+            headers: {
+                Accept: 'application/vnd.github+json',
+                Authorization: `Bearer ${token}`,
+                'X-GitHub-Api-Version': '2022-11-28',
+                'User-Agent': 'exein-analyzer-scan',
+                ...(body === undefined ? {} : { 'Content-Type': 'application/json' }),
+            },
+            ...(body === undefined ? {} : { body: JSON.stringify(body) }),
+            signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
+        });
+        if (!res.ok) {
+            const text = (await res.text().catch(() => '')).slice(0, 300);
+            throw new GitHubApiError(res.status, `${method} ${url} answered ${res.status}${text ? `: ${text}` : ''}`);
+        }
+        return method === 'GET' ? res.json() : undefined;
+    };
+    return {
+        async listComments(issueNumber) {
+            const all = [];
+            for (let page = 1; page <= MAX_PAGES; page++) {
+                const batch = (await request('GET', `${base}/${issueNumber}/comments?per_page=100&page=${page}`));
+                all.push(...batch);
+                if (batch.length < 100) {
+                    break;
+                }
+            }
+            return all;
+        },
+        async createComment(issueNumber, body) {
+            await request('POST', `${base}/${issueNumber}/comments`, { body });
+        },
+        async headSha(pullNumber) {
+            const pr = (await request('GET', `${pulls}/${pullNumber}`));
+            return typeof pr.head?.sha === 'string' ? pr.head.sha : undefined;
+        },
+        async updateComment(commentId, body) {
+            await request('PATCH', `${base}/comments/${commentId}`, { body });
+        },
+    };
+}
+class GitHubApiError extends Error {
+    status;
+    constructor(status, message) {
+        super(message);
+        this.status = status;
+        this.name = 'GitHubApiError';
+    }
+}
+/** The warning for a comment that failed. The step goes on. */
+function commentWarning(err) {
+    const message = err instanceof Error ? err.message : String(err);
+    const hint = err instanceof GitHubApiError && (err.status === 401 || err.status === 403 || err.status === 404)
+        ? ". The token needs the pull-requests: write permission; a pull request from a fork gets a read-only token. Set pr-comment: 'false' to turn the comment off"
+        : '';
+    return `Could not comment on the pull request: ${message}${hint}`;
+}
+
 ;// CONCATENATED MODULE: ./src/gate.ts
 
 
@@ -32214,6 +32393,8 @@ async function runMode(inputs, deps) {
 async function runGate(inputs, deps) {
     const deadline = new Deadline(deps, inputs.timeoutSeconds);
     const env = cliEnv(inputs.apiKey, inputs.apiUrl);
+    // The comment's key: the object as the inputs name it. With scan-id, the object of the scan, once known.
+    let key = 'scanId' in inputs.target ? undefined : objectName(inputs.target);
     let link;
     try {
         let scanId;
@@ -32250,9 +32431,14 @@ async function runGate(inputs, deps) {
             }
         }
         await deps.writeSummary(renderSummary(report));
+        key ??= report['object-id'];
+        await deps.prComment?.(key, renderSummary(report, key));
         return report;
     }
     catch (err) {
+        if (key) {
+            await deps.prComment?.(key, renderErrorSummary(errorMessage(err), link, key));
+        }
         return fail(err, deps, link);
     }
 }
@@ -32275,9 +32461,9 @@ async function runStatus(inputs, deps) {
     await deps.writeSummary(renderStatusSummary(scan));
     return scan;
 }
-/** The severities at or above `failOn`; none for `none`, which only reports. */
+/** The severities at or above `failOn`; none for `none`, which only reports, or `fix-now`, which counts instead. */
 function gatedSeverities(failOn) {
-    if (failOn === 'none') {
+    if (failOn === 'none' || failOn === 'fix-now') {
         return [];
     }
     return FAIL_ON_SEVERITIES.slice(0, FAIL_ON_SEVERITIES.indexOf(failOn) + 1);
@@ -32286,19 +32472,39 @@ const SEVERITY_ROWS = [...FAIL_ON_SEVERITIES, 'unknown'];
 function capitalize(s) {
     return s.charAt(0).toUpperCase() + s.slice(1);
 }
-/** The job summary: the decision and why, and a table of the counts per severity. */
-function renderSummary(report) {
+/**
+ * The job summary: the decision and why, and a table of the counts per severity. With `object`, the comment
+ * on the pull request, whose heading names the object, as a workflow may gate several.
+ */
+function renderSummary(report, object) {
     const failOn = report['fail-on'];
     const counts = report['cve-counts'];
-    const lines = [`## Exein Analyzer release gate: ${report.passed ? 'passed' : 'failed'}`, ''];
+    const lines = [
+        `## Exein Analyzer release gate: ${report.passed ? 'passed' : 'failed'}${object ? ` for \`${object}\`` : ''}`,
+        '',
+    ];
     if (failOn === 'none') {
         lines.push("fail-on `none`: report only, CVEs don't fail the step.", '');
+    }
+    else if (report.passed && failOn === 'fix-now') {
+        lines.push('No fix-now CVE blocks at fail-on `fix-now`.', '');
     }
     else if (report.passed) {
         lines.push(`No CVEs at fail-on \`${failOn}\` or above are reachable or unresolved.`, '');
     }
     if (report.failures.length > 0) {
         lines.push(...report.failures.map((f) => `- ${f}`), '');
+    }
+    const topLevel = report['fix-now'];
+    const fixNow = (counts ? fixNowCount(counts) : undefined) ??
+        (typeof topLevel === 'number' ? { total: topLevel } : undefined);
+    if (fixNow !== undefined) {
+        const { total } = fixNow;
+        // A split that contradicts a total of none is not shown.
+        const split = total > 0
+            ? SEVERITY_ROWS.filter((sev) => (fixNow[sev] ?? 0) > 0).map((sev) => `${fixNow[sev]} ${sev}`)
+            : [];
+        lines.push(`Fix now: ${total > 0 ? `**${total}**` : '0'} ${total === 1 ? 'CVE is' : 'CVEs are'} reachable and dangerous (in CISA KEV or above the EPSS threshold)${split.length > 0 ? `: ${split.join(', ')}` : ''}.`, '');
     }
     if (!counts) {
         const reason = report['no-counts-reason'];
@@ -32330,6 +32536,7 @@ function renderSummary(report) {
     }
     return lines.join('\n') + '\n';
 }
+/** The object as the inputs name it: its key, or its id. */
 function objectName(upload) {
     return 'id' in upload.object ? upload.object.id : upload.object.key;
 }
@@ -32346,8 +32553,15 @@ function renderUploadSummary(upload, scan) {
 function renderStatusSummary(scan) {
     return `Exein Analyzer scan \`${scan.id}\`: status \`${scan.status}\`, ${scan.finished ? 'finished' : 'not finished'}.\n`;
 }
-function renderErrorSummary(message, link) {
-    return ['## Exein Analyzer: error', '', message, ...(link ? ['', `[The scan](${link})`] : []), ''].join('\n');
+/** The summary of a step with no result. With `object`, the comment on the pull request. */
+function renderErrorSummary(message, link, object) {
+    return [
+        `## Exein Analyzer: error${object ? ` for \`${object}\`` : ''}`,
+        '',
+        message,
+        ...(link ? ['', `[The scan](${link})`] : []),
+        '',
+    ].join('\n');
 }
 
 ;// CONCATENATED MODULE: ./src/index.ts
@@ -32356,10 +32570,64 @@ function renderErrorSummary(message, link) {
 
 
 
+
+
+function readEventPayload() {
+    const file = process.env.GITHUB_EVENT_PATH;
+    if (!file) {
+        return undefined;
+    }
+    try {
+        return JSON.parse(external_fs_namespaceObject.readFileSync(file, 'utf8'));
+    }
+    catch {
+        return undefined;
+    }
+}
+/** The comment on the pull request of the event, or undefined when there is none to post. */
+function prCommenter(enabled) {
+    const payload = readEventPayload();
+    const prNumber = pullRequestNumber(process.env.GITHUB_EVENT_NAME, payload);
+    if (!enabled || prNumber === undefined) {
+        return undefined;
+    }
+    const token = getInput('github-token');
+    const repository = process.env.GITHUB_REPOSITORY;
+    if (!token || !repository) {
+        warning('No github-token, so the gate does not comment on the pull request');
+        return undefined;
+    }
+    setSecret(token);
+    const api = restCommentApi({
+        apiUrl: process.env.GITHUB_API_URL || 'https://api.github.com',
+        repository,
+        token,
+    });
+    const { GITHUB_SERVER_URL, GITHUB_RUN_ID } = process.env;
+    const sha = payload?.pull_request?.head
+        ?.sha;
+    const run = GITHUB_SERVER_URL && GITHUB_RUN_ID
+        ? `[run ${GITHUB_RUN_ID}](${GITHUB_SERVER_URL}/${repository}/actions/runs/${GITHUB_RUN_ID})`
+        : 'the latest run';
+    const footer = `<sub>From ${run}${sha ? ` on ${sha.slice(0, 7)}` : ''}. Updated on each run.</sub>`;
+    return async (key, body) => {
+        try {
+            const done = await upsertComment(api, prNumber, key, commentBody(key, body, footer), sha);
+            info(done === 'skipped'
+                ? `Pull request #${prNumber} moved on from ${sha}, so the gate leaves its comment to the newer run`
+                : `Comment on pull request #${prNumber} ${done}`);
+        }
+        catch (err) {
+            warning(commentWarning(err));
+        }
+    };
+}
 async function main() {
     try {
         const inputs = parseInputs(getInput);
         setSecret(inputs.apiKey);
+        // Only the gate comments, so only the gate reads pr-comment and github-token.
+        const prComment = inputs.mode === 'gate' ? prCommenter(parsePrComment(getInput)) : undefined;
         const analyzerPath = installAnalyzerCli(inputs.cliVersion, inputs.apiKey, inputs.apiUrl, info);
         const deps = {
             cli: spawnCli(analyzerPath, info),
@@ -32373,6 +32641,7 @@ async function main() {
             outDir: process.cwd(),
             now: Date.now,
             setFailed: setFailed,
+            ...(prComment ? { prComment } : {}),
         };
         await runMode(inputs, deps);
     }

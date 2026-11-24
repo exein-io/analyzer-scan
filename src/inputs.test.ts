@@ -1,6 +1,13 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
-import { formatSeconds, parseDuration, parseInputs, parseMode, type GetInput } from './inputs.js';
+import {
+  formatSeconds,
+  parseDuration,
+  parseInputs,
+  parseMode,
+  parsePrComment,
+  type GetInput,
+} from './inputs.js';
 
 /** Reads inputs from a record, failing on a missing required one as `core.getInput` does. */
 function inputs(values: Record<string, string>): GetInput {
@@ -234,10 +241,15 @@ describe('parseInputs', () => {
       assert.equal(parsed.mode === 'gate' && parsed.failOn, 'none');
     });
 
-    it('names none among the values of fail-on', () => {
+    it('reads fail-on fix-now, in any case', () => {
+      const parsed = parseInputs(inputs({ ...GATE, 'fail-on': 'Fix-Now' }));
+      assert.equal(parsed.mode === 'gate' && parsed.failOn, 'fix-now');
+    });
+
+    it('names fix-now and none among the values of fail-on', () => {
       assert.throws(
         () => parseInputs(inputs({ ...GATE, 'fail-on': 'off' })),
-        /Invalid fail-on "off". Must be one of: critical, high, medium, low, none$/,
+        /Invalid fail-on "off". Must be one of: critical, high, medium, low, fix-now, none$/,
       );
     });
 
@@ -391,5 +403,20 @@ describe('parseInputs', () => {
         /does not take object-key, file-path$/,
       );
     });
+  });
+});
+
+describe('parsePrComment', () => {
+  it('is on by default', () => {
+    assert.equal(parsePrComment(inputs({})), true);
+  });
+
+  it('reads true and false, in any case', () => {
+    assert.equal(parsePrComment(inputs({ 'pr-comment': 'TRUE' })), true);
+    assert.equal(parsePrComment(inputs({ 'pr-comment': 'false' })), false);
+  });
+
+  it('refuses anything else', () => {
+    assert.throws(() => parsePrComment(inputs({ 'pr-comment': 'No' })), /Invalid pr-comment "No"/);
   });
 });

@@ -22,6 +22,51 @@ export interface CveCounts {
   medium: CveTiers;
   low: CveTiers;
   unknown: CveTiers;
+  /**
+   * The CVEs that are reachable and dangerous (in CISA KEV or above the EPSS threshold), on servers that send
+   * it: an object with the total and the split per severity. A bare number, or `fix_now`, is read too.
+   */
+  'fix-now'?: FixNow | number | null;
+  fix_now?: FixNow | number | null;
+}
+
+/** The fix-now CVEs: the total, and per severity. */
+export interface FixNow {
+  total: number;
+  critical?: number;
+  high?: number;
+  medium?: number;
+  low?: number;
+  unknown?: number;
+}
+
+const FIX_NOW_SEVERITIES = ['critical', 'high', 'medium', 'low', 'unknown'] as const;
+
+/** One fix-now body: a bare number is the total, with no split; a split keeps only the severities that are numbers. */
+function readFixNow(body: unknown): FixNow | undefined {
+  if (typeof body === 'number') {
+    return { total: body };
+  }
+  if (!body || typeof body !== 'object') {
+    return undefined;
+  }
+  const split = body as Record<string, unknown>;
+  if (typeof split.total !== 'number') {
+    return undefined;
+  }
+  const fixNow: FixNow = { total: split.total };
+  for (const sev of FIX_NOW_SEVERITIES) {
+    const n = split[sev];
+    if (typeof n === 'number') {
+      fixNow[sev] = n;
+    }
+  }
+  return fixNow;
+}
+
+/** The fix-now count of the counts, when the server sends one; a bare number has no split. */
+export function fixNowCount(counts: CveCounts): FixNow | undefined {
+  return readFixNow(counts['fix-now']) ?? readFixNow(counts.fix_now);
 }
 
 /** What `analyzer scan new --format json` prints. */
@@ -52,6 +97,8 @@ export interface GateReport {
   passed: boolean;
   /** Null when the scan has no counts. */
   blocking: number | null;
+  /** The scan's fix-now total, from a CLI that sends it; null when the server sends none. */
+  'fix-now'?: number | null;
   'cve-counts': CveCounts | null;
   'no-counts-reason': string | null;
   /** Each null when that file is missing. */
@@ -105,6 +152,11 @@ export function cliEnv(apiKey: string, apiUrl: string): CliEnv {
   return { ANALYZER_API_KEY: apiKey, ANALYZER_URL: apiUrl.replace(/\/+$/, '') };
 }
 
+/** The environment without the step's inputs, which the runner passes as `INPUT_*` variables. */
+function withoutInputs(env: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
+  return Object.fromEntries(Object.entries(env).filter(([name]) => !name.startsWith('INPUT_')));
+}
+
 /**
  * Runs the CLI at `analyzerPath`. Its stderr is its progress, passed to `log` line by line as it comes, so
  * a wait of hours shows in the job log. Its stdout is kept for the JSON document it ends with.
@@ -113,7 +165,8 @@ export function spawnCli(analyzerPath: string, log: (line: string) => void): Cli
   return ({ args, env, timeoutSeconds }) =>
     new Promise((resolve, reject) => {
       const child = spawn(analyzerPath, args, {
-        env: { ...process.env, ...env },
+        // Without the step's inputs (`INPUT_*`), so the CLI never sees the github-token.
+        env: { ...withoutInputs(process.env), ...env },
         stdio: ['ignore', 'pipe', 'pipe'],
       });
       let stopped: Error | undefined;

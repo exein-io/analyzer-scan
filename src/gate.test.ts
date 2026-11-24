@@ -1,7 +1,16 @@
 import assert from 'node:assert/strict';
 import * as path from 'path';
 import { before, describe, it } from 'node:test';
-import type { CliCall, CliRunner, CveCounts, CveTiers, GateReport, NewScan, ScanStatus } from './analyzer.js';
+import type {
+  CliCall,
+  CliRunner,
+  CveCounts,
+  CveTiers,
+  FixNow,
+  GateReport,
+  NewScan,
+  ScanStatus,
+} from './analyzer.js';
 import { renderErrorSummary, renderStatusSummary, renderSummary, runMode, type Deps } from './gate.js';
 import type { GateInputs, Inputs, ScanInputs, StatusInputs, Upload } from './inputs.js';
 
@@ -130,6 +139,8 @@ interface Run {
   warnings: string[];
   /** The messages the step failed with. */
   failed: string[];
+  /** The comments on the pull request, by object. */
+  comments: { key: string; body: string }[];
   result?: GateReport | NewScan | ScanStatus;
   error?: Error;
 }
@@ -148,6 +159,7 @@ async function run(
     infos: [],
     warnings: [],
     failed: [],
+    comments: [],
   };
   const cli: CliRunner = async (call) => {
     r.calls.push(call);
@@ -169,6 +181,7 @@ async function run(
     outDir: OUT_DIR,
     now: () => clock,
     setFailed: (message) => r.failed.push(message),
+    prComment: async (key, body) => void r.comments.push({ key, body }),
   };
   try {
     r.result = await runMode(inputs, deps);
@@ -372,6 +385,57 @@ describe('gate: true', () => {
 
     it('fails the step, naming the scan when the report lists no failure', () => {
       assert.deepEqual(r.failed, [`The gate failed for scan ${SCAN_ID}`]);
+    });
+  });
+
+  describe('fail-on fix-now', () => {
+    const fixNow = { total: 2, critical: 0, high: 2, medium: 0, low: 0, unknown: 0 };
+    const failure = '2 CVEs are fix-now in scan ' + SCAN_ID;
+
+    it('passes fix-now to the CLI as it is', async () => {
+      const r = await run(gate({ failOn: 'fix-now' }), {
+        gate: done(report({ 'fail-on': 'fix-now', 'fix-now': 0 })),
+      });
+      assert.deepEqual(r.calls[1].args.slice(0, 6), [
+        'scan',
+        'gate',
+        '--scan',
+        SCAN_ID,
+        '--fail-on',
+        'fix-now',
+      ]);
+      assert.deepEqual(r.failed, []);
+    });
+
+    it('fails the step on exit 1, with the fix-now count in the summary and the comment', async () => {
+      const r = await run(gate({ failOn: 'fix-now' }), {
+        gate: gateFailed(
+          report({
+            'fail-on': 'fix-now',
+            passed: false,
+            blocking: 2,
+            'fix-now': 2,
+            'cve-counts': counts({ high: tiers({ all: 2, reachable: 2 }), 'fix-now': fixNow }),
+            failures: [failure],
+          }),
+        ),
+      });
+      assert.deepEqual(r.failed, [failure]);
+      assert.equal(r.outputs.get('blocking'), '2');
+      for (const md of [r.summaries[0], r.comments[0].body]) {
+        assert.ok(md.includes('Fix now: **2** CVEs are reachable and dangerous'));
+        assert.ok(md.includes(': 2 high.'));
+        assert.ok(md.includes('| High | 2 | 2 | 0 | 0 | not gated |'));
+      }
+    });
+
+    it('reports exit 2 from a CLI or server without fix-now as no result, not a failed gate', async () => {
+      const error = 'the server sends no fix-now count, so --fail-on fix-now cannot decide';
+      const r = await run(gate({ failOn: 'fix-now' }), { gate: noResult(error) });
+      assert.equal(r.error?.message, error);
+      assert.equal(r.outputs.get('scan-status'), undefined);
+      assert.equal(r.outputs.get('scan-id'), SCAN_ID);
+      assert.deepEqual(r.summaries, [renderErrorSummary(error, SCAN_URL)]);
     });
   });
 
@@ -606,6 +670,59 @@ describe('gate: true', () => {
       const r = await run(gate(), { gate: done({ 'scan-id': SCAN_ID }) });
       assert.match(r.error?.message ?? '', /^analyzer scan gate printed no decision: \{"scan-id":/);
     });
+  });
+});
+
+describe('the pull request comment', () => {
+  it('comments the summary, headed with the object key', async () => {
+    const r = await run(gate());
+    assert.deepEqual(r.comments, [
+      { key: 'gateway-firmware', body: renderSummary(report(), 'gateway-firmware') },
+    ]);
+    assert.match(r.comments[0].body, /^## Exein Analyzer release gate: passed for `gateway-firmware`\n/);
+  });
+
+  it('comments the failures of a failed gate', async () => {
+    const failure = '1 reachable or unresolved CVE at high or above';
+    const r = await run(gate({ failOn: 'high' }), {
+      gate: gateFailed(report({ 'fail-on': 'high', passed: false, blocking: 1, failures: [failure] })),
+    });
+    assert.equal(r.comments.length, 1);
+    assert.ok(r.comments[0].body.includes(`- ${failure}\n`));
+    assert.match(r.comments[0].body, /release gate: failed for/);
+  });
+
+  it('keys an object named by its id by that id', async () => {
+    const r = await run(gate({ target: BY_ID }));
+    assert.equal(r.comments[0].key, OBJECT_ID);
+  });
+
+  it('keys a scan made earlier by the object of the scan', async () => {
+    const r = await run(gate({ target: { scanId: SCAN_ID } }));
+    assert.equal(r.comments[0].key, OBJECT_ID);
+  });
+
+  it('comments the error of a gate with no result, with the link', async () => {
+    const error = 'the timeout ran out';
+    const r = await run(gate(), { gate: noResult(error) });
+    assert.deepEqual(r.comments, [
+      { key: 'gateway-firmware', body: renderErrorSummary(error, SCAN_URL, 'gateway-firmware') },
+    ]);
+  });
+
+  it('does not comment the error of a scan made earlier, whose object is not known', async () => {
+    const r = await run(gate({ target: { scanId: SCAN_ID } }), { gate: noResult('no such scan') });
+    assert.deepEqual(r.comments, []);
+  });
+
+  it('does not comment an upload without the gate', async () => {
+    const r = await run(scan());
+    assert.deepEqual(r.comments, []);
+  });
+
+  it('does not comment the status of a scan', async () => {
+    const r = await run(status());
+    assert.deepEqual(r.comments, []);
   });
 });
 
@@ -917,6 +1034,115 @@ describe('renderSummary', () => {
     it('shows no table', () => {
       assert.ok(!md.includes('| Severity |'));
     });
+  });
+
+  it('shows the fix-now count when the server sends one', () => {
+    const md = renderSummary(report({ 'cve-counts': counts({ 'fix-now': 2 }) }));
+    assert.ok(
+      md.includes(
+        '\nFix now: **2** CVEs are reachable and dangerous (in CISA KEV or above the EPSS threshold).\n',
+      ),
+    );
+  });
+
+  it('shows the fix-now object of the v2 counts, with its split per severity', () => {
+    const md = renderSummary(
+      report({
+        'cve-counts': counts({
+          'fix-now': { total: 3, critical: 1, high: 2, medium: 0, low: 0, unknown: 0 },
+        }),
+      }),
+    );
+    assert.ok(
+      md.includes(
+        '\nFix now: **3** CVEs are reachable and dangerous (in CISA KEV or above the EPSS threshold): 1 critical, 2 high.\n',
+      ),
+    );
+  });
+
+  it('shows a fix-now object with none, without a split', () => {
+    const md = renderSummary(
+      report({
+        'cve-counts': counts({
+          'fix-now': { total: 0, critical: 0, high: 0, medium: 0, low: 0, unknown: 0 },
+        }),
+      }),
+    );
+    assert.ok(
+      md.includes(
+        '\nFix now: 0 CVEs are reachable and dangerous (in CISA KEV or above the EPSS threshold).\n',
+      ),
+    );
+  });
+
+  it('ignores a fix-now object with no total', () => {
+    const md = renderSummary(
+      report({ 'cve-counts': counts({ 'fix-now': { high: 1 } as unknown as FixNow }) }),
+    );
+    assert.ok(!md.includes('Fix now'));
+  });
+
+  it('leaves out a severity of the fix-now split that is not a number', () => {
+    const md = renderSummary(
+      report({
+        'cve-counts': counts({
+          'fix-now': { total: 2, critical: '1', high: 2, medium: { total: 1 } } as unknown as FixNow,
+        }),
+      }),
+    );
+    assert.ok(md.includes('(in CISA KEV or above the EPSS threshold): 2 high.\n'));
+  });
+
+  it('shows no split when the fix-now total is none', () => {
+    const md = renderSummary(report({ 'cve-counts': counts({ 'fix-now': { total: 0, high: 1 } }) }));
+    assert.ok(
+      md.includes(
+        '\nFix now: 0 CVEs are reachable and dangerous (in CISA KEV or above the EPSS threshold).\n',
+      ),
+    );
+  });
+
+  it('falls back to the snake-case fix-now when the kebab-case one has no total', () => {
+    const md = renderSummary(
+      report({ 'cve-counts': counts({ 'fix-now': { high: 1 } as unknown as FixNow, fix_now: 1 }) }),
+    );
+    assert.ok(md.includes('\nFix now: **1** CVE is reachable'));
+  });
+
+  it('reads the fix-now count in snake case too, and says none', () => {
+    const md = renderSummary(report({ 'cve-counts': counts({ fix_now: 0 }) }));
+    assert.ok(md.includes('\nFix now: 0 CVEs are reachable'));
+  });
+
+  it('says a fix-now gate passed with no fix-now CVE', () => {
+    const md = renderSummary(report({ 'fail-on': 'fix-now', 'fix-now': 0 }));
+    assert.ok(md.includes('\nNo fix-now CVE blocks at fail-on `fix-now`.\n'));
+    assert.ok(md.includes('| Critical | 0 | 0 | 0 | 0 | not gated |'));
+  });
+
+  it('reads the top-level fix-now of the gate report when the counts have none', () => {
+    const md = renderSummary(report({ 'fix-now': 1 }));
+    assert.ok(md.includes('\nFix now: **1** CVE is reachable and dangerous'));
+  });
+
+  it('ignores a null top-level fix-now', () => {
+    assert.ok(!renderSummary(report({ 'fix-now': null })).includes('Fix now'));
+  });
+
+  it('treats a null fix-now, as during a deploy, like no count, never as 0', () => {
+    const md = renderSummary(report({ 'cve-counts': counts({ 'fix-now': null }) }));
+    assert.ok(!md.includes('Fix now'));
+    assert.equal(md, renderSummary(report({ 'cve-counts': counts() })));
+  });
+
+  it('says nothing of fix-now when the server sends no count', () => {
+    assert.ok(!renderSummary(report()).includes('Fix now'));
+  });
+
+  it('names the object in the heading, for the comment', () => {
+    assert.ok(
+      renderSummary(report(), 'gateway').startsWith('## Exein Analyzer release gate: passed for `gateway`\n'),
+    );
   });
 
   it('says why the report is missing', () => {

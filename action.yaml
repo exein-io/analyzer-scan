@@ -55,13 +55,23 @@ inputs:
     description: 'Gate: gate this scan made earlier instead of uploading an image. gate status needs it, as the scan to check'
     required: false
   fail-on:
-    description: 'Gate: lowest severity that blocks: critical, high, medium, or low. none reports only, for pipelines that gate on something else: no CVE fails the step, and blocking is 0'
+    description: 'Gate: lowest severity that blocks: critical, high, medium, or low. fix-now blocks on any fix-now CVE (reachable and dangerous), whatever its severity; it needs a CLI and server that send the fix-now count, and an older one exits 2, no decision, which fails the step. none reports only, for pipelines that gate on something else: no CVE fails the step, and blocking is 0'
     required: false
     default: 'critical'
   timeout:
     description: 'How long the step waits for the scan, counted from its start, such as 5h30m, 90m or 45s. Read by the gate, and by gate status, which waits 20m at most. gate false does not wait'
     required: false
     default: '5h30m'
+
+  # Pull request comment
+  pr-comment:
+    description: "Gate: on a pull_request event, post the gate's result as a comment on the pull request, one per object, updated on each run. false turns it off. Needs the pull-requests: write permission; a comment that fails only warns"
+    required: false
+    default: 'true'
+  github-token:
+    description: 'Token the gate comments on the pull request with. Defaults to the workflow token'
+    required: false
+    default: '${{ github.token }}'
 
 outputs:
   scan-id:
@@ -79,7 +89,7 @@ outputs:
   cve-counts:
     description: 'Gate: the CVE counts per severity, as JSON'
   blocking:
-    description: 'Gate: number of reachable + unresolved CVEs at fail-on or above; empty when the scan has no counts'
+    description: 'Gate: number of reachable + unresolved CVEs at fail-on or above, or of fix-now CVEs with fail-on fix-now; empty when the scan has no counts, or with fail-on fix-now when the server sends no fix-now count'
   scan-status:
     description: 'Gate and gate status: the status of the scan: pending, in-progress, success, error or canceled'
   finished:
