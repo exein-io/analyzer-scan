@@ -239,7 +239,11 @@ export function renderSummary(report: GateReport, object?: string): string {
   const fixNow = counts ? fixNowCount(counts) : undefined;
   if (fixNow !== undefined) {
     const { total } = fixNow;
-    const split = SEVERITY_ROWS.filter((sev) => (fixNow[sev] ?? 0) > 0).map((sev) => `${fixNow[sev]} ${sev}`);
+    // A split that contradicts a total of none is not shown.
+    const split =
+      total > 0
+        ? SEVERITY_ROWS.filter((sev) => (fixNow[sev] ?? 0) > 0).map((sev) => `${fixNow[sev]} ${sev}`)
+        : [];
     lines.push(
       `Fix now: ${total > 0 ? `**${total}**` : '0'} ${total === 1 ? 'CVE is' : 'CVEs are'} reachable and dangerous (in CISA KEV or above the EPSS threshold)${split.length > 0 ? `: ${split.join(', ')}` : ''}.`,
       '',

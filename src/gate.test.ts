@@ -1031,9 +1031,42 @@ describe('renderSummary', () => {
     assert.ok(!md.includes('Fix now'));
   });
 
+  it('leaves out a severity of the fix-now split that is not a number', () => {
+    const md = renderSummary(
+      report({
+        'cve-counts': counts({
+          'fix-now': { total: 2, critical: '1', high: 2, medium: { total: 1 } } as unknown as FixNow,
+        }),
+      }),
+    );
+    assert.ok(md.includes('(in CISA KEV or above the EPSS threshold): 2 high.\n'));
+  });
+
+  it('shows no split when the fix-now total is none', () => {
+    const md = renderSummary(report({ 'cve-counts': counts({ 'fix-now': { total: 0, high: 1 } }) }));
+    assert.ok(
+      md.includes(
+        '\nFix now: 0 CVEs are reachable and dangerous (in CISA KEV or above the EPSS threshold).\n',
+      ),
+    );
+  });
+
+  it('falls back to the snake-case fix-now when the kebab-case one has no total', () => {
+    const md = renderSummary(
+      report({ 'cve-counts': counts({ 'fix-now': { high: 1 } as unknown as FixNow, fix_now: 1 }) }),
+    );
+    assert.ok(md.includes('\nFix now: **1** CVE is reachable'));
+  });
+
   it('reads the fix-now count in snake case too, and says none', () => {
     const md = renderSummary(report({ 'cve-counts': counts({ fix_now: 0 }) }));
     assert.ok(md.includes('\nFix now: 0 CVEs are reachable'));
+  });
+
+  it('treats a null fix-now, as during a deploy, like no count, never as 0', () => {
+    const md = renderSummary(report({ 'cve-counts': counts({ 'fix-now': null }) }));
+    assert.ok(!md.includes('Fix now'));
+    assert.equal(md, renderSummary(report({ 'cve-counts': counts() })));
   });
 
   it('says nothing of fix-now when the server sends no count', () => {

@@ -31943,13 +31943,31 @@ function parsePrComment(getInput) {
 
 
 
+const FIX_NOW_SEVERITIES = ['critical', 'high', 'medium', 'low', 'unknown'];
+/** One fix-now body: a bare number is the total, with no split; a split keeps only the severities that are numbers. */
+function readFixNow(body) {
+    if (typeof body === 'number') {
+        return { total: body };
+    }
+    if (!body || typeof body !== 'object') {
+        return undefined;
+    }
+    const split = body;
+    if (typeof split.total !== 'number') {
+        return undefined;
+    }
+    const fixNow = { total: split.total };
+    for (const sev of FIX_NOW_SEVERITIES) {
+        const n = split[sev];
+        if (typeof n === 'number') {
+            fixNow[sev] = n;
+        }
+    }
+    return fixNow;
+}
 /** The fix-now count of the counts, when the server sends one; a bare number has no split. */
 function fixNowCount(counts) {
-    const n = counts['fix-now'] ?? counts.fix_now;
-    if (typeof n === 'number') {
-        return { total: n };
-    }
-    return n && typeof n === 'object' && typeof n.total === 'number' ? n : undefined;
+    return readFixNow(counts['fix-now']) ?? readFixNow(counts.fix_now);
 }
 /** Done; for `scan gate`, the gate passed. */
 const EXIT_DONE = 0;
@@ -32474,7 +32492,10 @@ function renderSummary(report, object) {
     const fixNow = counts ? fixNowCount(counts) : undefined;
     if (fixNow !== undefined) {
         const { total } = fixNow;
-        const split = SEVERITY_ROWS.filter((sev) => (fixNow[sev] ?? 0) > 0).map((sev) => `${fixNow[sev]} ${sev}`);
+        // A split that contradicts a total of none is not shown.
+        const split = total > 0
+            ? SEVERITY_ROWS.filter((sev) => (fixNow[sev] ?? 0) > 0).map((sev) => `${fixNow[sev]} ${sev}`)
+            : [];
         lines.push(`Fix now: ${total > 0 ? `**${total}**` : '0'} ${total === 1 ? 'CVE is' : 'CVEs are'} reachable and dangerous (in CISA KEV or above the EPSS threshold)${split.length > 0 ? `: ${split.join(', ')}` : ''}.`, '');
     }
     if (!counts) {

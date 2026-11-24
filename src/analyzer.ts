@@ -40,15 +40,36 @@ export interface FixNow {
   unknown?: number;
 }
 
-/** The fix-now count of the counts, when the server sends one; a bare number has no split. */
-export function fixNowCount(counts: CveCounts): FixNow | undefined {
-  const n = counts['fix-now'] ?? counts.fix_now;
-  if (typeof n === 'number') {
-    return { total: n };
+const FIX_NOW_SEVERITIES = ['critical', 'high', 'medium', 'low', 'unknown'] as const;
+
+/** One fix-now body: a bare number is the total, with no split; a split keeps only the severities that are numbers. */
+function readFixNow(body: unknown): FixNow | undefined {
+  if (typeof body === 'number') {
+    return { total: body };
   }
-  return n && typeof n === 'object' && typeof n.total === 'number' ? n : undefined;
+  if (!body || typeof body !== 'object') {
+    return undefined;
+  }
+  const split = body as Record<string, unknown>;
+  if (typeof split.total !== 'number') {
+    return undefined;
+  }
+  const fixNow: FixNow = { total: split.total };
+  for (const sev of FIX_NOW_SEVERITIES) {
+    const n = split[sev];
+    if (typeof n === 'number') {
+      fixNow[sev] = n;
+    }
+  }
+  return fixNow;
 }
 
+/** The fix-now count of the counts, when the server sends one; a bare number has no split. */
+export function fixNowCount(counts: CveCounts): FixNow | undefined {
+  return readFixNow(counts['fix-now']) ?? readFixNow(counts.fix_now);
+}
+
+/** What `analyzer scan new --format json` prints. */
 export interface NewScan {
   id: string;
   'object-id': string;
