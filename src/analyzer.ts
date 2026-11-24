@@ -97,6 +97,8 @@ export interface GateReport {
   passed: boolean;
   /** Null when the scan has no counts. */
   blocking: number | null;
+  /** The scan's fix-now total, from a CLI that sends it; null when the server sends none. */
+  'fix-now'?: number | null;
   'cve-counts': CveCounts | null;
   'no-counts-reason': string | null;
   /** Each null when that file is missing. */

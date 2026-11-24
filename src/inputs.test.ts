@@ -241,10 +241,15 @@ describe('parseInputs', () => {
       assert.equal(parsed.mode === 'gate' && parsed.failOn, 'none');
     });
 
-    it('names none among the values of fail-on', () => {
+    it('reads fail-on fix-now, in any case', () => {
+      const parsed = parseInputs(inputs({ ...GATE, 'fail-on': 'Fix-Now' }));
+      assert.equal(parsed.mode === 'gate' && parsed.failOn, 'fix-now');
+    });
+
+    it('names fix-now and none among the values of fail-on', () => {
       assert.throws(
         () => parseInputs(inputs({ ...GATE, 'fail-on': 'off' })),
-        /Invalid fail-on "off". Must be one of: critical, high, medium, low, none$/,
+        /Invalid fail-on "off". Must be one of: critical, high, medium, low, fix-now, none$/,
       );
     });
 

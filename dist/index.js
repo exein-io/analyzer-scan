@@ -31786,8 +31786,11 @@ const external_readline_namespaceObject = require("readline");
 /** The image types the Analyzer CLI scans. */
 const SCAN_TYPES = ['docker', 'linux'];
 const FAIL_ON_SEVERITIES = ['critical', 'high', 'medium', 'low'];
-/** The values of `fail-on`: the lowest severity that blocks, or `none`, which only reports. */
-const FAIL_ON_VALUES = [...FAIL_ON_SEVERITIES, 'none'];
+/**
+ * The values of `fail-on`: the lowest severity that blocks, `fix-now`, where any fix-now CVE blocks (a CLI and
+ * server that send the fix-now count), or `none`, which only reports.
+ */
+const FAIL_ON_VALUES = [...FAIL_ON_SEVERITIES, 'fix-now', 'none'];
 /** The Analyzer CLI release this major of the action is built for. */
 const DEFAULT_CLI_VERSION = 'v1.1.0';
 function parseMode(value) {
@@ -32458,9 +32461,9 @@ async function runStatus(inputs, deps) {
     await deps.writeSummary(renderStatusSummary(scan));
     return scan;
 }
-/** The severities at or above `failOn`; none for `none`, which only reports. */
+/** The severities at or above `failOn`; none for `none`, which only reports, or `fix-now`, which counts instead. */
 function gatedSeverities(failOn) {
-    if (failOn === 'none') {
+    if (failOn === 'none' || failOn === 'fix-now') {
         return [];
     }
     return FAIL_ON_SEVERITIES.slice(0, FAIL_ON_SEVERITIES.indexOf(failOn) + 1);
@@ -32483,13 +32486,18 @@ function renderSummary(report, object) {
     if (failOn === 'none') {
         lines.push("fail-on `none`: report only, CVEs don't fail the step.", '');
     }
+    else if (report.passed && failOn === 'fix-now') {
+        lines.push('fail-on `fix-now`: no CVE is reachable and dangerous.', '');
+    }
     else if (report.passed) {
         lines.push(`No CVEs at fail-on \`${failOn}\` or above are reachable or unresolved.`, '');
     }
     if (report.failures.length > 0) {
         lines.push(...report.failures.map((f) => `- ${f}`), '');
     }
-    const fixNow = counts ? fixNowCount(counts) : undefined;
+    const topLevel = report['fix-now'];
+    const fixNow = (counts ? fixNowCount(counts) : undefined) ??
+        (typeof topLevel === 'number' ? { total: topLevel } : undefined);
     if (fixNow !== undefined) {
         const { total } = fixNow;
         // A split that contradicts a total of none is not shown.

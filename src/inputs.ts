@@ -8,8 +8,11 @@ export const FAIL_ON_SEVERITIES = ['critical', 'high', 'medium', 'low'] as const
 /** A severity that `fail-on` can name as the lowest that blocks. */
 export type Severity = (typeof FAIL_ON_SEVERITIES)[number];
 
-/** The values of `fail-on`: the lowest severity that blocks, or `none`, which only reports. */
-export const FAIL_ON_VALUES = [...FAIL_ON_SEVERITIES, 'none'] as const;
+/**
+ * The values of `fail-on`: the lowest severity that blocks, `fix-now`, where any fix-now CVE blocks (a CLI and
+ * server that send the fix-now count), or `none`, which only reports.
+ */
+export const FAIL_ON_VALUES = [...FAIL_ON_SEVERITIES, 'fix-now', 'none'] as const;
 
 export type FailOn = (typeof FAIL_ON_VALUES)[number];
 

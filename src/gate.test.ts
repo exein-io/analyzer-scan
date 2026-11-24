@@ -388,6 +388,57 @@ describe('gate: true', () => {
     });
   });
 
+  describe('fail-on fix-now', () => {
+    const fixNow = { total: 2, critical: 0, high: 2, medium: 0, low: 0, unknown: 0 };
+    const failure = '2 CVEs are fix-now in scan ' + SCAN_ID;
+
+    it('passes fix-now to the CLI as it is', async () => {
+      const r = await run(gate({ failOn: 'fix-now' }), {
+        gate: done(report({ 'fail-on': 'fix-now', 'fix-now': 0 })),
+      });
+      assert.deepEqual(r.calls[1].args.slice(0, 6), [
+        'scan',
+        'gate',
+        '--scan',
+        SCAN_ID,
+        '--fail-on',
+        'fix-now',
+      ]);
+      assert.deepEqual(r.failed, []);
+    });
+
+    it('fails the step on exit 1, with the fix-now count in the summary and the comment', async () => {
+      const r = await run(gate({ failOn: 'fix-now' }), {
+        gate: gateFailed(
+          report({
+            'fail-on': 'fix-now',
+            passed: false,
+            blocking: 2,
+            'fix-now': 2,
+            'cve-counts': counts({ high: tiers({ all: 2, reachable: 2 }), 'fix-now': fixNow }),
+            failures: [failure],
+          }),
+        ),
+      });
+      assert.deepEqual(r.failed, [failure]);
+      assert.equal(r.outputs.get('blocking'), '2');
+      for (const md of [r.summaries[0], r.comments[0].body]) {
+        assert.ok(md.includes('Fix now: **2** CVEs are reachable and dangerous'));
+        assert.ok(md.includes(': 2 high.'));
+        assert.ok(md.includes('| High | 2 | 2 | 0 | 0 | not gated |'));
+      }
+    });
+
+    it('reports exit 2 from a CLI or server without fix-now as no result, not a failed gate', async () => {
+      const error = 'the server sends no fix-now count, so --fail-on fix-now cannot decide';
+      const r = await run(gate({ failOn: 'fix-now' }), { gate: noResult(error) });
+      assert.equal(r.error?.message, error);
+      assert.equal(r.outputs.get('scan-status'), undefined);
+      assert.equal(r.outputs.get('scan-id'), SCAN_ID);
+      assert.deepEqual(r.summaries, [renderErrorSummary(error, SCAN_URL)]);
+    });
+  });
+
   describe('exit 0 at fail-on none, with reachable critical CVEs', () => {
     const critical = counts({ critical: tiers({ all: 3, reachable: 1, unreachable: 1, unresolved: 1 }) });
     let r: Run;
@@ -1061,6 +1112,21 @@ describe('renderSummary', () => {
   it('reads the fix-now count in snake case too, and says none', () => {
     const md = renderSummary(report({ 'cve-counts': counts({ fix_now: 0 }) }));
     assert.ok(md.includes('\nFix now: 0 CVEs are reachable'));
+  });
+
+  it('says a fix-now gate passed with no fix-now CVE', () => {
+    const md = renderSummary(report({ 'fail-on': 'fix-now', 'fix-now': 0 }));
+    assert.ok(md.includes('\nfail-on `fix-now`: no CVE is reachable and dangerous.\n'));
+    assert.ok(md.includes('| Critical | 0 | 0 | 0 | 0 | not gated |'));
+  });
+
+  it('reads the top-level fix-now of the gate report when the counts have none', () => {
+    const md = renderSummary(report({ 'fix-now': 1 }));
+    assert.ok(md.includes('\nFix now: **1** CVE is reachable and dangerous'));
+  });
+
+  it('ignores a null top-level fix-now', () => {
+    assert.ok(!renderSummary(report({ 'fix-now': null })).includes('Fix now'));
   });
 
   it('treats a null fix-now, as during a deploy, like no count, never as 0', () => {

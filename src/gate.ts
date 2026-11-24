@@ -203,9 +203,9 @@ export async function runStatus(inputs: StatusInputs, deps: Deps): Promise<ScanS
   return scan;
 }
 
-/** The severities at or above `failOn`; none for `none`, which only reports. */
+/** The severities at or above `failOn`; none for `none`, which only reports, or `fix-now`, which counts instead. */
 function gatedSeverities(failOn: FailOn): Severity[] {
-  if (failOn === 'none') {
+  if (failOn === 'none' || failOn === 'fix-now') {
     return [];
   }
   return FAIL_ON_SEVERITIES.slice(0, FAIL_ON_SEVERITIES.indexOf(failOn) + 1);
@@ -230,13 +230,18 @@ export function renderSummary(report: GateReport, object?: string): string {
   ];
   if (failOn === 'none') {
     lines.push("fail-on `none`: report only, CVEs don't fail the step.", '');
+  } else if (report.passed && failOn === 'fix-now') {
+    lines.push('fail-on `fix-now`: no CVE is reachable and dangerous.', '');
   } else if (report.passed) {
     lines.push(`No CVEs at fail-on \`${failOn}\` or above are reachable or unresolved.`, '');
   }
   if (report.failures.length > 0) {
     lines.push(...report.failures.map((f) => `- ${f}`), '');
   }
-  const fixNow = counts ? fixNowCount(counts) : undefined;
+  const topLevel = report['fix-now'];
+  const fixNow =
+    (counts ? fixNowCount(counts) : undefined) ??
+    (typeof topLevel === 'number' ? { total: topLevel } : undefined);
   if (fixNow !== undefined) {
     const { total } = fixNow;
     // A split that contradicts a total of none is not shown.
