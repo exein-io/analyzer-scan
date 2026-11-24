@@ -1,7 +1,16 @@
 import assert from 'node:assert/strict';
 import * as path from 'path';
 import { before, describe, it } from 'node:test';
-import type { CliCall, CliRunner, CveCounts, CveTiers, GateReport, NewScan, ScanStatus } from './analyzer.js';
+import type {
+  CliCall,
+  CliRunner,
+  CveCounts,
+  CveTiers,
+  FixNow,
+  GateReport,
+  NewScan,
+  ScanStatus,
+} from './analyzer.js';
 import { renderErrorSummary, renderStatusSummary, renderSummary, runMode, type Deps } from './gate.js';
 import type { GateInputs, Inputs, ScanInputs, StatusInputs, Upload } from './inputs.js';
 
@@ -983,6 +992,43 @@ describe('renderSummary', () => {
         '\nFix now: **2** CVEs are reachable and dangerous (in CISA KEV or above the EPSS threshold).\n',
       ),
     );
+  });
+
+  it('shows the fix-now object of the v2 counts, with its split per severity', () => {
+    const md = renderSummary(
+      report({
+        'cve-counts': counts({
+          'fix-now': { total: 3, critical: 1, high: 2, medium: 0, low: 0, unknown: 0 },
+        }),
+      }),
+    );
+    assert.ok(
+      md.includes(
+        '\nFix now: **3** CVEs are reachable and dangerous (in CISA KEV or above the EPSS threshold): 1 critical, 2 high.\n',
+      ),
+    );
+  });
+
+  it('shows a fix-now object with none, without a split', () => {
+    const md = renderSummary(
+      report({
+        'cve-counts': counts({
+          'fix-now': { total: 0, critical: 0, high: 0, medium: 0, low: 0, unknown: 0 },
+        }),
+      }),
+    );
+    assert.ok(
+      md.includes(
+        '\nFix now: 0 CVEs are reachable and dangerous (in CISA KEV or above the EPSS threshold).\n',
+      ),
+    );
+  });
+
+  it('ignores a fix-now object with no total', () => {
+    const md = renderSummary(
+      report({ 'cve-counts': counts({ 'fix-now': { high: 1 } as unknown as FixNow }) }),
+    );
+    assert.ok(!md.includes('Fix now'));
   });
 
   it('reads the fix-now count in snake case too, and says none', () => {

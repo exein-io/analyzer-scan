@@ -31943,10 +31943,13 @@ function parsePrComment(getInput) {
 
 
 
-/** The fix-now count of the counts, when the server sends one. */
+/** The fix-now count of the counts, when the server sends one; a bare number has no split. */
 function fixNowCount(counts) {
     const n = counts['fix-now'] ?? counts.fix_now;
-    return typeof n === 'number' ? n : undefined;
+    if (typeof n === 'number') {
+        return { total: n };
+    }
+    return n && typeof n === 'object' && typeof n.total === 'number' ? n : undefined;
 }
 /** Done; for `scan gate`, the gate passed. */
 const EXIT_DONE = 0;
@@ -32470,7 +32473,9 @@ function renderSummary(report, object) {
     }
     const fixNow = counts ? fixNowCount(counts) : undefined;
     if (fixNow !== undefined) {
-        lines.push(`Fix now: ${fixNow > 0 ? `**${fixNow}**` : '0'} ${fixNow === 1 ? 'CVE is' : 'CVEs are'} reachable and dangerous (in CISA KEV or above the EPSS threshold).`, '');
+        const { total } = fixNow;
+        const split = SEVERITY_ROWS.filter((sev) => (fixNow[sev] ?? 0) > 0).map((sev) => `${fixNow[sev]} ${sev}`);
+        lines.push(`Fix now: ${total > 0 ? `**${total}**` : '0'} ${total === 1 ? 'CVE is' : 'CVEs are'} reachable and dangerous (in CISA KEV or above the EPSS threshold)${split.length > 0 ? `: ${split.join(', ')}` : ''}.`, '');
     }
     if (!counts) {
         const reason = report['no-counts-reason'];

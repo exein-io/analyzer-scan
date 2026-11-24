@@ -22,18 +22,33 @@ export interface CveCounts {
   medium: CveTiers;
   low: CveTiers;
   unknown: CveTiers;
-  /** The CVEs that are reachable and dangerous (in CISA KEV or above the EPSS threshold), on servers that send it. */
-  'fix-now'?: number | null;
-  fix_now?: number | null;
+  /**
+   * The CVEs that are reachable and dangerous (in CISA KEV or above the EPSS threshold), on servers that send
+   * it: an object with the total and the split per severity. A bare number, or `fix_now`, is read too.
+   */
+  'fix-now'?: FixNow | number | null;
+  fix_now?: FixNow | number | null;
 }
 
-/** The fix-now count of the counts, when the server sends one. */
-export function fixNowCount(counts: CveCounts): number | undefined {
+/** The fix-now CVEs: the total, and per severity. */
+export interface FixNow {
+  total: number;
+  critical?: number;
+  high?: number;
+  medium?: number;
+  low?: number;
+  unknown?: number;
+}
+
+/** The fix-now count of the counts, when the server sends one; a bare number has no split. */
+export function fixNowCount(counts: CveCounts): FixNow | undefined {
   const n = counts['fix-now'] ?? counts.fix_now;
-  return typeof n === 'number' ? n : undefined;
+  if (typeof n === 'number') {
+    return { total: n };
+  }
+  return n && typeof n === 'object' && typeof n.total === 'number' ? n : undefined;
 }
 
-/** What `analyzer scan new --format json` prints. */
 export interface NewScan {
   id: string;
   'object-id': string;

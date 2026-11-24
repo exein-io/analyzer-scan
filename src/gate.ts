@@ -238,8 +238,10 @@ export function renderSummary(report: GateReport, object?: string): string {
   }
   const fixNow = counts ? fixNowCount(counts) : undefined;
   if (fixNow !== undefined) {
+    const { total } = fixNow;
+    const split = SEVERITY_ROWS.filter((sev) => (fixNow[sev] ?? 0) > 0).map((sev) => `${fixNow[sev]} ${sev}`);
     lines.push(
-      `Fix now: ${fixNow > 0 ? `**${fixNow}**` : '0'} ${fixNow === 1 ? 'CVE is' : 'CVEs are'} reachable and dangerous (in CISA KEV or above the EPSS threshold).`,
+      `Fix now: ${total > 0 ? `**${total}**` : '0'} ${total === 1 ? 'CVE is' : 'CVEs are'} reachable and dangerous (in CISA KEV or above the EPSS threshold)${split.length > 0 ? `: ${split.join(', ')}` : ''}.`,
       '',
     );
   }
